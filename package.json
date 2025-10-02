@@ -1,14 +1,15 @@
 {
   "name": "agent",
   "version": "1.0.0",
-  "description": "This repository establishes secure connection to IoT Hub via DPS and registers the device",
-  "main": "build/main.js",
+  "description": "This repository establishes secure connection to IoT Hub via DPS and registers the device, listens for the messages on device and console them",
+  "main": "dist/main.js",
   "scripts": {
     "lint": "eslint . --ext .ts",
-    "start": "node build/main.js",
+    "start": "node dist/main.js",
     "dev": "ts-node-dev --respawn src/main.ts",
     "build": "tsc",
-    "start:build": "npm run build && node build/main.js",
+    "start:build": "npm run build && node dist/main.js",
+    "build:package": "npm i && npm run build && ts-node scripts/build-and-package.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [
@@ -23,6 +24,7 @@
     "@nestjs/config": "^4.0.2",
     "@nestjs/core": "^11.1.6",
     "@nestjs/platform-express": "^11.1.6",
+    "archiver": "^7.0.1",
     "azure-iot-device": "^1.18.3",
     "azure-iot-device-mqtt": "^1.16.3",
     "azure-iot-provisioning-device": "^1.9.1",
@@ -30,6 +32,7 @@
     "azure-iot-security-symmetric-key": "^1.8.2",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.2",
+    "dotenv": "^17.2.3",
     "nest-winston": "^1.10.2",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
@@ -38,10 +41,12 @@
     "winston-daily-rotate-file": "^5.0.0"
   },
   "devDependencies": {
+    "@types/archiver": "^6.0.3",
     "@types/node": "^24.6.0",
     "@typescript-eslint/eslint-plugin": "^7.1.0",
     "@typescript-eslint/parser": "^7.1.0",
     "eslint": "^8.57.0",
+    "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0"
   }
 }

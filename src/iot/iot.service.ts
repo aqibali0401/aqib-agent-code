@@ -104,16 +104,11 @@ export class IoTService implements OnModuleInit {
   }
 
   async openAndInitDevice(deviceId: string, deviceInfo: HostDeviceSnapshot) {
-    const telemetryIntervalMsDefault = 5000;
     const { client } = await this.registerNewIotDevice(deviceId);
     await client.open();
     this.logger.log('Device connected to IoT Hub');
-    this.applyRemoteActions(client, telemetryIntervalMsDefault);
-    await this.readDeviceUpdates(
-      client,
-      telemetryIntervalMsDefault,
-      deviceInfo
-    );
+    this.applyRemoteActions(client);
+    await this.readDeviceUpdates(client, deviceInfo);
     this.receiveMessages(client);
   }
 
@@ -144,21 +139,19 @@ export class IoTService implements OnModuleInit {
 
   private async readDeviceUpdates(
     client: Client,
-    telemetryInterval: number,
     deviceInfo: HostDeviceSnapshot
   ) {
     const twin = await client.getTwin();
     const properties = twin.properties as unknown as TwinProperties;
     const isDesiredFirstTimeRegistration =
       properties.desired.firstTimeRegistration;
-    console.log(properties.reported.firstTimeRegistration);
+
     const isReportedFirstTimeRegistration =
       properties.reported.firstTimeRegistration === undefined ||
       properties.reported.firstTimeRegistration === true
         ? true
         : false;
-    console.log(isDesiredFirstTimeRegistration);
-    console.log(isReportedFirstTimeRegistration);
+
     if (isDesiredFirstTimeRegistration && isReportedFirstTimeRegistration) {
       this.logger.log('New device registration');
       await this.sendTelemetry(client, {
@@ -178,16 +171,6 @@ export class IoTService implements OnModuleInit {
         );
       });
     }
-    if (properties.desired.telemetryInterval) {
-      telemetryInterval = properties.desired.telemetryInterval * 1000;
-    }
-    twin.on('properties.desired', (desiredChange: TwinDesiredProperties) => {
-      if (desiredChange.telemetryInterval) {
-        telemetryInterval = desiredChange.telemetryInterval * 1000;
-        // this.startSendingTelemetry(client, telemetryInterval);
-      }
-    });
-    // this.startSendingTelemetry(client, telemetryInterval);
   }
 
   private receiveMessages(client: Client) {
@@ -200,7 +183,7 @@ export class IoTService implements OnModuleInit {
     });
   }
 
-  private applyRemoteActions(client: Client, telemetryInterval: number) {
+  private applyRemoteActions(client: Client) {
     client.onDeviceMethod('reboot', async (request, response) => {
       try {
         await response.send(200, 'Rebooting device...');
