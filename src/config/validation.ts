@@ -5,8 +5,21 @@ class EnvironmentVariables {
   @IsString()
   PROVISIONING_IDSCOPE!: string;
 
+  @IsOptional()
   @IsString()
-  PROVISIONING_GROUP_SYMMETRIC_KEY!: string;
+  PROVISIONING_GROUP_SYMMETRIC_KEY?: string;
+
+  @IsOptional()
+  @IsString()
+  X509_CERT_FILE?: string;
+
+  @IsOptional()
+  @IsString()
+  X509_KEY_FILE?: string;
+
+  @IsOptional()
+  @IsString()
+  X509_PASSPHRASE?: string;
 
   @IsOptional()
   @IsString()
@@ -19,6 +32,10 @@ class EnvironmentVariables {
   @IsOptional()
   @IsString()
   LOG_RETAIN_PERIOD?: string;
+
+  @IsOptional()
+  @IsString()
+  APP_VERSION?: string;
 }
 
 export default function validate(

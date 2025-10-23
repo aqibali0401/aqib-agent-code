@@ -1,13 +1,20 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  OnModuleInit,
+  Inject,
+  LoggerService,
+} from '@nestjs/common';
+import { WINSTON_MODULE_NEST_PROVIDER } from 'nest-winston';
 import { Client, Message } from 'azure-iot-device';
 import { MqttWs as DeviceMqttWs } from 'azure-iot-device-mqtt';
-import { SymmetricKeySecurityClient } from 'azure-iot-security-symmetric-key';
+import { X509Security } from 'azure-iot-security-x509';
 import {
   ProvisioningDeviceClient,
   RegistrationResult,
 } from 'azure-iot-provisioning-device';
 import { MqttWs as DpsMqtt } from 'azure-iot-provisioning-device-mqtt';
-import * as crypto from 'crypto';
+import * as fs from 'fs';
+import * as path from 'path';
 import { DEVICE_TYPE, EVENT_TYPE } from '../constants/app.constants';
 import {
   getHostDeviceSnapshot,
@@ -29,30 +36,40 @@ const provisioningHost =
 const idScope = process.env.PROVISIONING_IDSCOPE as string;
 const groupSymmetricKey = process.env
   .PROVISIONING_GROUP_SYMMETRIC_KEY as string;
+const x509CertFile = process.env.X509_CERT_FILE as string;
+const x509KeyFile = process.env.X509_KEY_FILE as string;
+const x509Passphrase = process.env.X509_PASSPHRASE as string;
+const appVersion = process.env.APP_VERSION as string;
 
 @Injectable()
 export class IoTService implements OnModuleInit {
-  private readonly logger = new Logger(IoTService.name);
+  constructor(
+    @Inject(WINSTON_MODULE_NEST_PROVIDER)
+    private readonly logger: LoggerService
+  ) {}
 
-  private deriveDeviceKey(groupKey: string, deviceId: string): string {
-    const key = Buffer.from(groupKey, 'base64');
-    const hmac = crypto.createHmac('sha256', new Uint8Array(key));
-    hmac.update(deviceId, 'utf8');
-    return hmac.digest('base64');
-  }
 
   async onModuleInit() {
+    // Intentionally left blank to delay device initialization until after app start
+  }
+
+  async initializeAfterAppStart() {
     try {
       const snapshot = await getHostDeviceSnapshot();
       const model = snapshot.system.model || 'MODEL';
-      const serial = snapshot.system.serial || snapshot.system.uuid || 'SERIAL';
+      const serial =
+        snapshot.system.serial ||
+        snapshot.system.uuid ||
+        'SERIAL';
+      
+      // For X.509: deviceId is generated from system info and MUST match certificate CN
       const deviceId = formatDeviceId(DEVICE_TYPE, model, serial);
+      this.logger.log(`Using device ID: ${deviceId}`);
+      
       snapshot.registrationId = deviceId;
       await this.openAndInitDevice(deviceId, snapshot);
-      this.logger.log(`IoT device initialized on startup: ${deviceId}`);
     } catch (err) {
-      console.log(err);
-      this.logger.error('Failed to initialize IoT device on startup');
+      this.logger.error('Failed to initialize IoT device on startup:', err);
     }
   }
 
@@ -60,53 +77,97 @@ export class IoTService implements OnModuleInit {
     deviceId: string
   ): Promise<{ client: Client; registrationResult: RegistrationResult }> {
     if (!idScope) throw new Error('Missing PROVISIONING_IDSCOPE');
-    if (!groupSymmetricKey)
-      throw new Error('Missing PROVISIONING_GROUP_SYMMETRIC_KEY');
+    if (!x509CertFile) throw new Error('Missing X509_CERT_FILE');
+    if (!x509KeyFile) throw new Error('Missing X509_KEY_FILE');
 
-    const deviceSymmetricKey = this.deriveDeviceKey(
-      groupSymmetricKey,
-      deviceId
-    );
-    const securityClient: SymmetricKeySecurityClient =
-      new SymmetricKeySecurityClient(deviceId, deviceSymmetricKey);
+    // Read X.509 certificate and private key
+    let cert: string, key: string;
+    try {
+      const certPath = path.resolve(x509CertFile);
+      const keyPath = path.resolve(x509KeyFile);
+
+      cert = fs.readFileSync(certPath, 'utf8');
+      key = fs.readFileSync(keyPath, 'utf8');
+
+      this.logger.log(`Certificate loaded from: ${certPath}`);
+      this.logger.log(`Private key loaded from: ${keyPath}`);
+    } catch (error) {
+      this.logger.error('Failed to load X.509 certificate or key:', error);
+      throw error;
+    }
+
+    // Create X509 certificate object with cert and key
+    const x509Certificate = {
+      cert: cert,
+      key: key,
+      passphrase: x509Passphrase,
+    };
+
+    const securityClient = new X509Security(deviceId, x509Certificate);
+
+    this.logger.log('X509Security client created successfully');
 
     const dpsTransport = new DpsMqtt();
+
     const provisioningClient = ProvisioningDeviceClient.create(
       provisioningHost,
       idScope,
       dpsTransport,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      securityClient as any
+      securityClient
     );
 
+    this.logger.log('Provisioning client created successfully');
+
+    this.logger.log('Starting DPS registration...');
     const registrationResult = await new Promise<RegistrationResult>(
       (resolve, reject) => {
+        // Set a timeout for registration (60 seconds)
+        const timeout = setTimeout(() => {
+          this.logger.error('DPS registration timed out after 60 seconds');
+          reject(new Error('DPS registration timeout'));
+        }, 60000);
+
         provisioningClient.register((err, result) => {
-          if (err) return reject(err);
-          if (!result)
+          clearTimeout(timeout);
+          if (err) {
+            this.logger.error('DPS registration failed:', err);
+            this.logger.error('Error message:', err.message || 'No error message');
+            this.logger.error('Error code:', (err as any).code || 'No error code');
+            return reject(err);
+          }
+          if (!result) {
+            this.logger.error('Registration result is undefined');
             return reject(new Error('Registration result is undefined'));
+          }
+          this.logger.log('DPS registration successful!');
           resolve(result);
         });
       }
     );
 
-    this.logger.log('Registration succeeded');
-    this.logger.log(`Assigned Hub: ${registrationResult.assignedHub}`);
     this.logger.log(`DeviceId: ${registrationResult.deviceId}`);
 
     const transport = DeviceMqttWs;
-    const deviceConnectionString = `HostName=${registrationResult.assignedHub};DeviceId=${registrationResult.deviceId};SharedAccessKey=${deviceSymmetricKey}`;
-    const client = Client.fromConnectionString(
-      deviceConnectionString,
-      transport
-    );
+    const deviceConnectionString = `HostName=${registrationResult.assignedHub};DeviceId=${registrationResult.deviceId};x509=true`;
+    const client = Client.fromConnectionString(deviceConnectionString, transport);
+    
+    // Set X.509 certificate options for the device client
+    client.setOptions({
+      cert: cert,
+      key: key,
+      passphrase: x509Passphrase,
+    });
+
     return { client, registrationResult };
   }
 
   async openAndInitDevice(deviceId: string, deviceInfo: HostDeviceSnapshot) {
-    const { client } = await this.registerNewIotDevice(deviceId);
+    const { client, registrationResult } = await this.registerNewIotDevice(
+      deviceId
+    );
     await client.open();
-    this.logger.log('Device connected to IoT Hub');
+    this.logger.log(`Device connected to IoT Hub: ${registrationResult.assignedHub}`);
+    this.logger.log(`Device ID: ${registrationResult.deviceId}`);
     this.applyRemoteActions(client);
     await this.readDeviceUpdates(client, deviceInfo);
     this.receiveMessages(client);
@@ -115,26 +176,6 @@ export class IoTService implements OnModuleInit {
   private async sendTelemetry(client: Client, data: Record<string, unknown>) {
     const message = new Message(JSON.stringify(data));
     await client.sendEvent(message);
-  }
-
-  private startSendingTelemetry(client: Client, telemetryInterval: number) {
-    let fridgeTemp = 4;
-    let doorOpen = false;
-    let itemsStored = 20;
-    setInterval(async () => {
-      doorOpen = Math.random() < 0.3 ? !doorOpen : doorOpen;
-      fridgeTemp += doorOpen ? 0.5 : -0.1;
-      fridgeTemp = Math.min(Math.max(fridgeTemp, 2), 8);
-      itemsStored += Math.floor(Math.random() * 3 - 1);
-      itemsStored = Math.min(Math.max(itemsStored, 10), 25);
-      const telemetry = {
-        fridgeTemp: parseFloat(fridgeTemp.toFixed(1)),
-        doorOpen,
-        energyUsage: doorOpen ? 1 + Math.random() * 0.3 : 0.5,
-        itemsStored,
-      };
-      await this.sendTelemetry(client, telemetry);
-    }, telemetryInterval);
   }
 
   private async readDeviceUpdates(
@@ -153,7 +194,6 @@ export class IoTService implements OnModuleInit {
         : false;
 
     if (isDesiredFirstTimeRegistration && isReportedFirstTimeRegistration) {
-      this.logger.log('New device registration');
       await this.sendTelemetry(client, {
         eventType: EVENT_TYPE.NEW_DEVICE_REGISTRATION,
         deviceId: deviceInfo.registrationId,
@@ -170,15 +210,19 @@ export class IoTService implements OnModuleInit {
           resolve()
         );
       });
+      this.logger.log('New device event triggered');
     }
   }
 
   private receiveMessages(client: Client) {
     client.on('message', async (msg) => {
       try {
+        const msgBuffer = msg.data;
+        const msgStringified = msgBuffer.toString();
+        this.logger.log(`Received message from IoT Hub: ${msgStringified}`);
         await client.complete(msg);
       } catch (err) {
-        this.logger.error('Error completing message');
+        this.logger.error('Error completing message:', err);
       }
     });
   }
@@ -186,8 +230,8 @@ export class IoTService implements OnModuleInit {
   private applyRemoteActions(client: Client) {
     client.onDeviceMethod('reboot', async (request, response) => {
       try {
+        this.logger.log('Reboot called');
         await response.send(200, 'Rebooting device...');
-        // this.startSendingTelemetry(client, telemetryInterval);
       } catch (err) {
         this.logger.error('Error responding to reboot method');
       }

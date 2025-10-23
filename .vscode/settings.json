@@ -1,0 +1,16 @@
+{
+    "json.schemas": [
+        {
+            "fileMatch": [
+                "*.fhir.json"
+            ],
+            "url":"./fhir.schema.json"
+        }
+    ],
+    "cSpell.words": [
+        "birthdate",
+        "dignostic",
+        "imei",
+        "settup"
+    ]
+}
