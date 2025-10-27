@@ -1,0 +1,66 @@
+/**
+ * Show Device ID
+ * This script displays the device ID that will be used for IoT Hub registration
+ * The device ID must match the CN (Common Name) in your X.509 certificate
+ */
+
+const si = require('systeminformation');
+
+const DEVICE_TYPE = 'AIO';
+
+// Normalize function (same as device-id.ts)
+const normalize = (value) => value.trim().replace(/\s+/g, '-');
+
+async function getSystemInfo() {
+  console.log('🔍 Collecting system information...\n');
+  const system = await si.system();
+  
+  const model = system.model || 'MODEL';
+  const serial = system.serial || system.uuid || 'SERIAL';
+  
+  console.log('System Information:');
+  console.log('═'.repeat(60));
+  console.log(`  Manufacturer: ${system.manufacturer}`);
+  console.log(`  Model:        ${model}`);
+  console.log(`  Serial:       ${serial}`);
+  console.log(`  UUID:         ${system.uuid}`);
+  console.log('═'.repeat(60));
+  
+  return { model, serial };
+}
+
+function generateDeviceId(model, serial) {
+  const deviceId = `${normalize(DEVICE_TYPE)}_${normalize(model)}_${normalize(serial)}`;
+  return deviceId;
+}
+
+async function main() {
+  console.log('\n🎯 Device ID Generator\n');
+  
+  try {
+    const { model, serial } = await getSystemInfo();
+    const deviceId = generateDeviceId(model, serial);
+    
+    console.log('\n✅ Generated Device ID:');
+    console.log('═'.repeat(60));
+    console.log(`\n  ${deviceId}\n`);
+    console.log('═'.repeat(60));
+    
+    console.log('\n📋 Next Steps:');
+    console.log('  1. Copy the Device ID above');
+    console.log('  2. Add it to your .env file:');
+    console.log(`     DEVICE_ID=${deviceId}`);
+    console.log('  3. Ensure your X.509 certificate has this as the CN (Common Name)');
+    console.log('  4. If you need to generate a certificate with this ID, run:');
+    console.log('     node scripts/generateDynamicCert.js');
+    console.log('═'.repeat(60));
+    
+  } catch (error) {
+    console.error('\n❌ Error:', error.message);
+    process.exit(1);
+  }
+}
+
+// Run the script
+main();
+

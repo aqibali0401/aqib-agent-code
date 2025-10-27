@@ -3,9 +3,10 @@ import { ConfigModule } from './config/config.module';
 import { HealthController } from './health.controller';
 import { LoggerModule } from './logger.module';
 import { IoTModule } from './iot/iot.module';
+import { EdgeAssemblyModule } from './edge-assembly/edge-assembly.module';
 
 @Module({
-  imports: [ConfigModule, LoggerModule, IoTModule],
+  imports: [ConfigModule, LoggerModule, IoTModule, EdgeAssemblyModule],
   controllers: [HealthController],
 })
 export class AppModule {}
