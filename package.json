@@ -10,8 +10,15 @@
     "build": "tsc",
     "start:build": "npm run build && node dist/main.js",
     "build:package": "npm i && npm run build && ts-node scripts/build-and-package.ts",
-    "setup-x509": "node scripts/setupX509.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    
+    "cert:root": "node scripts/generateRootCA.js",
+    "cert:intermediate": "node scripts/generateIntermediateCert.js",
+    "cert:device": "node scripts/generateDynamicCert.js",
+    "cert:verify": "node scripts/generateVerificationCert.js",
+    "cert:setup": "npm run cert:root && npm run cert:intermediate",
+    "show-device-id": "node scripts/showDeviceId.js",
+    "test:edge-assembly": "node scripts/testEdgeAssembly.js"
   },
   "keywords": [
     "nodejs",
@@ -25,7 +32,7 @@
     "@nestjs/config": "^4.0.2",
     "@nestjs/core": "^11.1.6",
     "@nestjs/platform-express": "^11.1.6",
-    "@qsc/edge-assembly": "file:../edge-assembly",
+    "@qsc/edge-assembly": "^0.0.0-alpha.3",
     "archiver": "^7.0.1",
     "azure-iot-device": "^1.18.3",
     "azure-iot-device-mqtt": "^1.16.3",

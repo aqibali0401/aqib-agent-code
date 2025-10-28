@@ -236,23 +236,28 @@ export class EdgeAssemblyService implements OnModuleInit {
 
   /**
    * Register cloud-to-device message handlers (one-way notifications)
+   * 
+   * NOTE: Cloud-to-Device messages are not yet supported in @qsc/edge-assembly v0.0.0-alpha.3
+   * The package only supports Direct Methods (request-response pattern) via onRequest()
+   * This functionality will be available in a future version of the package.
    */
   private registerMessageHandlers() {
+    // TODO: Uncomment when onNotification is available in edge-assembly package
     // Generic message handler for all topics
-    this.edgeDevice.onNotification('*', (message: string) => {
-      this.logger.log(`📨 Cloud-to-Device message received: ${message}`);
+    // this.edgeDevice.onNotification('*', (message: string) => {
+    //   this.logger.log(`📨 Cloud-to-Device message received: ${message}`);
 
-      try {
-        // Try to parse as JSON
-        const parsedMessage = JSON.parse(message);
-        this.handleCloudMessage(parsedMessage);
-      } catch (error) {
-        // If not JSON, log as plain text
-        this.logger.log(`📨 Plain text message: ${message}`);
-      }
-    });
+    //   try {
+    //     // Try to parse as JSON
+    //     const parsedMessage = JSON.parse(message);
+    //     this.handleCloudMessage(parsedMessage);
+    //   } catch (error) {
+    //     // If not JSON, log as plain text
+    //     this.logger.log(`📨 Plain text message: ${message}`);
+    //   }
+    // });
 
-    this.logger.log('📨 Cloud-to-Device message handlers registered');
+    this.logger.log('📨 Cloud-to-Device message handlers not yet supported in current edge-assembly version');
   }
 
   /**
@@ -291,6 +296,10 @@ export class EdgeAssemblyService implements OnModuleInit {
 
   /**
    * Send telemetry data to IoT Hub (Device-to-Cloud)
+   * 
+   * NOTE: Sending telemetry/messages is not yet supported in @qsc/edge-assembly v0.0.0-alpha.3
+   * The package currently only supports receiving Direct Methods via onRequest()
+   * This functionality will be available in a future version of the package.
    */
   async sendTelemetry(topic: string, data: any): Promise<void> {
     if (!this.isInitialized) {
@@ -299,8 +308,10 @@ export class EdgeAssemblyService implements OnModuleInit {
 
     try {
       const message = typeof data === 'string' ? data : JSON.stringify(data);
-      await this.edgeDevice.notify(topic, message);
-      this.logger.log(`📤 Telemetry sent - Topic: ${topic}, Data: ${message}`);
+      // TODO: Uncomment when notify() method is available in edge-assembly package
+      // await this.edgeDevice.notify(topic, message);
+      this.logger.log(`📤 Telemetry NOT sent (feature not available yet) - Topic: ${topic}, Data: ${message}`);
+      this.logger.warn('Telemetry sending is not yet supported in the current edge-assembly version');
     } catch (error) {
       this.logger.error('Failed to send telemetry:', error);
       throw error;

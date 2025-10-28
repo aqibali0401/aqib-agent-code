@@ -25,8 +25,9 @@ function generateVerificationCertificate(verificationCode) {
   console.log(`Verification code: ${verificationCode}`);
 
   try {
-    const rootCAKeyPath = path.join(CERTIFICATES_DIR, "rootCA.key");
-    const rootCACertPath = path.join(CERTIFICATES_DIR, "rootCA.pem");
+    // Use INTERMEDIATE CA to sign verification cert (since intermediate.pem was uploaded to DPS)
+    const intermediateKeyPath = path.join(CERTIFICATES_DIR, "intermediate.key");
+    const intermediateCertPath = path.join(CERTIFICATES_DIR, "intermediate.pem");
     const verificationKeyPath = path.join(CERTIFICATES_DIR, "verification.key");
     const verificationCsrPath = path.join(CERTIFICATES_DIR, "verification.csr");
     const verificationCertPath = path.join(
@@ -34,25 +35,35 @@ function generateVerificationCertificate(verificationCode) {
       "verification.pem"
     );
 
-    // Check if root CA files exist
-    if (!fs.existsSync(rootCAKeyPath) || !fs.existsSync(rootCACertPath)) {
+    // Check if intermediate CA files exist
+    if (!fs.existsSync(intermediateKeyPath) || !fs.existsSync(intermediateCertPath)) {
       console.error(
-        "❌ Root CA files not found. Run generateTestCertificates.js first."
+        "❌ Intermediate CA files not found. Run: npm run cert:intermediate"
       );
       process.exit(1);
     }
 
+    // Generate verification key if it doesn't exist
+    if (!fs.existsSync(verificationKeyPath)) {
+      console.log("1. Generating verification private key...");
+      execSync(`openssl genrsa -out "${verificationKeyPath}" 4096`, {
+        stdio: "inherit",
+      });
+    } else {
+      console.log("1. Using existing verification private key...");
+    }
+
     // Generate verification certificate signing request
-    console.log("1. Generating verification certificate signing request...");
+    console.log("2. Generating verification certificate signing request...");
     execSync(
       `openssl req -new -key "${verificationKeyPath}" -out "${verificationCsrPath}" -subj "/CN=${verificationCode}"`,
       { stdio: "inherit" }
     );
 
-    // Generate verification certificate
-    console.log("2. Generating verification certificate...");
+    // Generate verification certificate (signed by INTERMEDIATE CA)
+    console.log("3. Generating verification certificate (signed by Intermediate CA)...");
     execSync(
-      `openssl x509 -req -days 30 -in "${verificationCsrPath}" -CA "${rootCACertPath}" -CAkey "${rootCAKeyPath}" -CAcreateserial -out "${verificationCertPath}"`,
+      `openssl x509 -req -days 30 -in "${verificationCsrPath}" -CA "${intermediateCertPath}" -CAkey "${intermediateKeyPath}" -CAcreateserial -out "${verificationCertPath}"`,
       { stdio: "inherit" }
     );
 
@@ -61,15 +72,16 @@ function generateVerificationCertificate(verificationCode) {
 
     console.log("✅ Verification certificate generated successfully!");
     console.log(`📄 Verification certificate: ${verificationCertPath}`);
+    console.log(`   Signed by: Intermediate CA (intermediate.pem)`);
 
     console.log("\n🔧 Next Steps:");
     console.log(
-      "1. Upload the verification certificate to Azure IoT Hub portal"
+      "1. Upload verification.pem to Azure DPS certificate verification"
     );
     console.log(
-      "2. Azure will verify the certificate and mark your CA as verified"
+      "2. Azure will verify and mark your Intermediate CA as 'Verified'"
     );
-    console.log("3. You can now use device certificates signed by this CA");
+    console.log("3. Create enrollment group using the verified intermediate CA");
   } catch (error) {
     console.error(
       "❌ Error generating verification certificate:",

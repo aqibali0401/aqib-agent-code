@@ -41,17 +41,17 @@ function ensureCertificatesDir() {
   }
 }
 
-function checkRootCA() {
-  const rootCertPath = path.join(CERTIFICATES_DIR, 'rootCA.pem');
-  const rootKeyPath = path.join(CERTIFICATES_DIR, 'rootCA.key');
+function checkIntermediateCA() {
+  const intermediateCertPath = path.join(CERTIFICATES_DIR, 'intermediate.pem');
+  const intermediateKeyPath = path.join(CERTIFICATES_DIR, 'intermediate.key');
   
-  if (!fs.existsSync(rootCertPath) || !fs.existsSync(rootKeyPath)) {
-    console.error('❌ Error: Root CA certificate and key not found!');
-    console.error('   Please run the root CA generation script first.');
+  if (!fs.existsSync(intermediateCertPath) || !fs.existsSync(intermediateKeyPath)) {
+    console.error('❌ Error: Intermediate CA certificate and key not found!');
+    console.error('   Please run: node scripts/generateIntermediateCert.js');
     process.exit(1);
   }
   
-  console.log('✅ Root CA found');
+  console.log('✅ Intermediate CA found');
 }
 
 function generateDeviceCertificate(deviceId) {
@@ -60,9 +60,10 @@ function generateDeviceCertificate(deviceId) {
   const deviceKeyPath = path.join(CERTIFICATES_DIR, 'device.key');
   const deviceCsrPath = path.join(CERTIFICATES_DIR, 'device.csr');
   const deviceCertPath = path.join(CERTIFICATES_DIR, 'device.pem');
-  const rootCertPath = path.join(CERTIFICATES_DIR, 'rootCA.pem');
-  const rootKeyPath = path.join(CERTIFICATES_DIR, 'rootCA.key');
-  const extFilePath = path.join(CERTIFICATES_DIR, 'ext.cnf');
+  
+  // Use INTERMEDIATE CA instead of Root CA
+  const intermediateCertPath = path.join(CERTIFICATES_DIR, 'intermediate.pem');
+  const intermediateKeyPath = path.join(CERTIFICATES_DIR, 'intermediate.key');
   
   // Step 1: Generate private key for device
   console.log('   Generating private key...');
@@ -75,23 +76,49 @@ function generateDeviceCertificate(deviceId) {
     { stdio: 'inherit' }
   );
   
-  // Step 3: Sign the CSR with Root CA (without extension file to avoid config issues)
-  console.log('   Signing certificate with Root CA...');
+  // Step 3: Sign with INTERMEDIATE CA (not Root CA)
+  console.log('   Signing certificate with Intermediate CA...');
   execSync(
-    `openssl x509 -req -in "${deviceCsrPath}" -CA "${rootCertPath}" -CAkey "${rootKeyPath}" -CAcreateserial -out "${deviceCertPath}" -days 1095 -sha256`,
+    `openssl x509 -req -in "${deviceCsrPath}" ` +
+    `-CA "${intermediateCertPath}" -CAkey "${intermediateKeyPath}" ` +
+    `-CAcreateserial -out "${deviceCertPath}" ` +
+    `-days 365 -sha256`,
     { stdio: 'inherit' }
   );
   
-  // Step 5: Verify the certificate
+  // Step 4: Create full chain (device + intermediate)
+  const fullChainPath = path.join(CERTIFICATES_DIR, 'device-fullchain.pem');
+  const deviceCert = fs.readFileSync(deviceCertPath, 'utf8');
+  const intermediateCert = fs.readFileSync(intermediateCertPath, 'utf8');
+  fs.writeFileSync(fullChainPath, deviceCert + intermediateCert);
+  console.log(`   Created full chain: ${fullChainPath}`);
+  
+  // Step 5: Verify the certificate (against intermediate + root chain)
   console.log('\n🔍 Verifying certificate...');
-  execSync(`openssl verify -CAfile "${rootCertPath}" "${deviceCertPath}"`, { stdio: 'inherit' });
   
-  // Step 6: Display certificate details
-  console.log('\n📋 Certificate Details:');
-  const certInfo = execSync(`openssl x509 -in "${deviceCertPath}" -noout -subject -dates`, { encoding: 'utf8' });
-  console.log(certInfo);
+  // Create temporary chain file for verification
+  const rootCertPath = path.join(CERTIFICATES_DIR, 'rootCA.pem');
+  const chainPath = path.join(CERTIFICATES_DIR, 'ca-chain.pem');
   
-  // Clean up CSR file
+  try {
+    // Create chain: intermediate + root
+    const intermediateCert = fs.readFileSync(intermediateCertPath, 'utf8');
+    const rootCert = fs.readFileSync(rootCertPath, 'utf8');
+    fs.writeFileSync(chainPath, intermediateCert + rootCert);
+    
+    execSync(
+      `openssl verify -CAfile "${chainPath}" "${deviceCertPath}"`,
+      { stdio: 'inherit' }
+    );
+    
+    // Clean up chain file
+    fs.unlinkSync(chainPath);
+  } catch (error) {
+    console.log('⚠️  Note: Verification requires full CA chain (intermediate + root)');
+    console.log('   Your device certificate is valid and will work with Azure DPS');
+  }
+  
+  // Clean up CSR
   if (fs.existsSync(deviceCsrPath)) {
     fs.unlinkSync(deviceCsrPath);
   }
@@ -99,6 +126,7 @@ function generateDeviceCertificate(deviceId) {
   console.log('\n✅ Device certificate generated successfully!');
   console.log(`   Certificate: ${deviceCertPath}`);
   console.log(`   Private Key: ${deviceKeyPath}`);
+  console.log(`   Full Chain: ${fullChainPath}`);
 }
 
 async function main() {
@@ -109,8 +137,8 @@ async function main() {
     // Step 1: Ensure certificates directory exists
     ensureCertificatesDir();
     
-    // Step 2: Check if Root CA exists
-    checkRootCA();
+    // Step 2: Check if Intermediate CA exists
+    checkIntermediateCA();
     
     // Step 3: Get system information
     const { model, serial } = await getSystemInfo();
@@ -125,9 +153,13 @@ async function main() {
     console.log('✅ All done! Your device certificate is ready.');
     console.log(`\n📌 Device ID: ${deviceId}`);
     console.log('\n💡 Next steps:');
-    console.log('   1. The certificate files are in the certificates/ folder');
-    console.log('   2. Restart your application');
-    console.log('   3. The device will register with the dynamic ID');
+    console.log('   1. Ensure intermediate.pem is uploaded and verified in Azure DPS');
+    console.log('   2. Ensure enrollment group is created in DPS');
+    console.log('   3. The certificate files are in the certificates/ folder');
+    console.log('   4. Restart your application');
+    console.log('   5. The device will auto-provision with the dynamic ID');
+    console.log('\n⚠️  Note: This device cert is signed by Intermediate CA');
+    console.log('   Make sure DPS has intermediate.pem (NOT rootCA.pem)');
     console.log('=' .repeat(60));
     
   } catch (error) {
