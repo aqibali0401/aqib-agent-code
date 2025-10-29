@@ -53,24 +53,8 @@ requiredVars.forEach(varName => {
   }
 });
 
-// Check 3: Feature flag
-console.log('\n📋 Check 3: Feature Flag');
-console.log('─'.repeat(70));
-
-const useEdgeAssembly = process.env.USE_EDGE_ASSEMBLY;
-if (useEdgeAssembly === 'true') {
-  console.log('  ✅ USE_EDGE_ASSEMBLY: true (Edge Assembly enabled)');
-} else if (useEdgeAssembly === 'false') {
-  console.log('  ⚠️  USE_EDGE_ASSEMBLY: false (Using legacy IoT service)');
-  console.log('     Set USE_EDGE_ASSEMBLY=true to use Edge Assembly');
-} else {
-  console.log('  ❌ USE_EDGE_ASSEMBLY: Not set');
-  console.log('     Add USE_EDGE_ASSEMBLY=true to your .env file');
-  allChecksPassed = false;
-}
-
-// Check 4: Certificate files
-console.log('\n📋 Check 4: X.509 Certificate Files');
+// Check 3: Certificate files
+console.log('\n📋 Check 3: X.509 Certificate Files');
 console.log('─'.repeat(70));
 
 const certFile = process.env.X509_CERT_FILE;
@@ -98,8 +82,8 @@ if (keyFile) {
   }
 }
 
-// Check 5: Build directory
-console.log('\n📋 Check 5: Build Status');
+// Check 4: Build directory
+console.log('\n📋 Check 4: Build Status');
 console.log('─'.repeat(70));
 
 const distPath = path.join(__dirname, '..', 'dist');
@@ -110,8 +94,8 @@ if (fs.existsSync(distPath)) {
   console.log('     Run: npm run build');
 }
 
-// Check 6: Edge Assembly module
-console.log('\n📋 Check 6: Edge Assembly Files');
+// Check 5: Edge Assembly module
+console.log('\n📋 Check 5: Edge Assembly Files');
 console.log('─'.repeat(70));
 
 const edgeAssemblyService = path.join(__dirname, '..', 'src', 'edge-assembly', 'edge-assembly.service.ts');
@@ -131,8 +115,8 @@ if (fs.existsSync(edgeAssemblyModule)) {
   allChecksPassed = false;
 }
 
-// Check 7: Package installation
-console.log('\n📋 Check 7: Package Installation');
+// Check 6: Package installation
+console.log('\n📋 Check 6: Package Installation');
 console.log('─'.repeat(70));
 
 const packageJsonPath = path.join(__dirname, '..', 'package.json');

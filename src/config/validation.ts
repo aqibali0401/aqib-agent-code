@@ -2,29 +2,6 @@ import { plainToInstance } from 'class-transformer';
 import { IsOptional, IsString, validateSync } from 'class-validator';
 
 class EnvironmentVariables {
-  @IsString()
-  PROVISIONING_IDSCOPE!: string;
-
-  @IsOptional()
-  @IsString()
-  PROVISIONING_GROUP_SYMMETRIC_KEY?: string;
-
-  @IsOptional()
-  @IsString()
-  X509_CERT_FILE?: string;
-
-  @IsOptional()
-  @IsString()
-  X509_KEY_FILE?: string;
-
-  @IsOptional()
-  @IsString()
-  X509_PASSPHRASE?: string;
-
-  @IsOptional()
-  @IsString()
-  PROVISIONING_HOST?: string;
-
   @IsOptional()
   @IsString()
   PORT?: string;
@@ -36,6 +13,18 @@ class EnvironmentVariables {
   @IsOptional()
   @IsString()
   APP_VERSION?: string;
+
+  @IsOptional()
+  @IsString()
+  DEVICE_ID?: string;
+
+  @IsOptional()
+  @IsString()
+  ENABLE_PERIODIC_TELEMETRY?: string;
+
+  @IsOptional()
+  @IsString()
+  TELEMETRY_INTERVAL_MS?: string;
 }
 
 export default function validate(

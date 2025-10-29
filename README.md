@@ -142,11 +142,6 @@ Create a `.env` file in the root directory:
 DEVICE_ID=AIO_20VD_PG02W5PL  # Use the ID from Step 2
 
 # ============================================
-# Edge Assembly (Recommended)
-# ============================================
-USE_EDGE_ASSEMBLY=true
-
-# ============================================
 # X.509 Certificate Authentication
 # ============================================
 USE_CERTIFICATE_AUTH=true
@@ -262,7 +257,6 @@ If you have existing certificates:
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `DEVICE_ID` | ✅ | - | Unique device identifier (must match cert CN) |
-| `USE_EDGE_ASSEMBLY` | ✅ | `true` | Use EdgeAssembly package (recommended) |
 | `USE_CERTIFICATE_AUTH` | ✅ | `true` | Use X.509 certificate authentication |
 | `X509_CERT_FILE` | ✅ | - | Path to device certificate |
 | `X509_KEY_FILE` | ✅ | - | Path to private key |
@@ -771,7 +765,6 @@ aqib-agent-nest/
 │   ├── config/           # Configuration module
 │   ├── constants/        # Application constants
 │   ├── edge-assembly/    # EdgeAssembly service & controller
-│   ├── iot/              # Legacy IoT service
 │   ├── utils/            # Utility functions
 │   ├── app.module.ts     # Main application module
 │   └── main.ts           # Application entry point
@@ -792,35 +785,16 @@ aqib-agent-nest/
 
 ---
 
-## 🔄 Edge Assembly vs Legacy IoT Service
+## 🔄 Edge Assembly Integration
 
-This project supports two IoT implementations:
+This project uses the `@qsc/edge-assembly` package for IoT operations.
 
-### Edge Assembly (Recommended) ✅
-
-Modern implementation using `@qsc/edge-assembly` package.
-
-```env
-USE_EDGE_ASSEMBLY=true
-```
-
-**Advantages:**
-- Cleaner API
-- Better error handling
-- Modular architecture
-- Easier to maintain
-
-### Legacy IoT Service
-
-Direct Azure SDK implementation.
-
-```env
-USE_EDGE_ASSEMBLY=false
-```
-
-**Use when:**
-- You need direct access to Azure SDK features
-- Testing specific Azure SDK functionality
+**Benefits:**
+- ✅ Cleaner API
+- ✅ Better error handling  
+- ✅ Modular architecture
+- ✅ Easier to maintain
+- ✅ Abstraction over Azure IoT SDK complexity
 
 ---
 
@@ -913,7 +887,6 @@ Before running in production, verify:
 - [ ] X.509 certificates generated (`generateDynamicCert.js`)
 - [ ] Root CA uploaded to DPS and verified
 - [ ] `.env` file created with all required variables
-- [ ] `USE_EDGE_ASSEMBLY=true` set
 - [ ] Device ID matches certificate CN
 - [ ] Application builds successfully (`npm run build`)
 - [ ] Application connects to IoT Hub
