@@ -18,7 +18,12 @@
     "cert:verify": "node scripts/generateVerificationCert.js",
     "cert:setup": "npm run cert:root && npm run cert:intermediate",
     "show-device-id": "node scripts/showDeviceId.js",
-    "test:edge-assembly": "node scripts/testEdgeAssembly.js"
+    "test:edge-assembly": "node scripts/testEdgeAssembly.js",
+    "manufacturing:dps-setup": "node scripts/pipeline/dps-setup.js",
+    "manufacturing:dps-bootstrap": "scripts\\pipeline\\bootstrap-dps.cmd",
+    "manufacturing:prepare-image": "node scripts/manufacturing/prepare-device-image.js",
+    "device:first-boot-setup": "node scripts/deployment/first-boot-setup.js",
+    "start:validated": "npm run device:first-boot-setup && node dist/main.js"
   },
   "keywords": [
     "nodejs",
