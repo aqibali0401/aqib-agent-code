@@ -237,31 +237,173 @@ export class EdgeAssemblyService implements OnModuleInit {
   /**
    * Register cloud-to-device message handlers (one-way notifications)
    * 
-   * NOTE: Cloud-to-Device messages are not yet supported in @qsc/edge-assembly v0.0.0-alpha.3
-   * The package only supports Direct Methods (request-response pattern) via onRequest()
-   * This functionality will be available in a future version of the package.
+   * NOTE: Updated for @qsc/edge-assembly v0.0.0 - now supports C2D messages
+   * Messages are automatically received by AzureAdapter and routed to registered handlers
    */
   private registerMessageHandlers() {
-    // TODO: Uncomment when onNotification is available in edge-assembly package
-    // Generic message handler for all topics
-    // this.edgeDevice.onNotification('*', (message: string) => {
-    //   this.logger.log(`📨 Cloud-to-Device message received: ${message}`);
+    try {
+      // Access the AzureAdapter through the edge-assembly's internal plugin
+      // The edge-assembly package uses a plugin pattern internally
+      const edgeDeviceAny = this.edgeDevice as any;
+      
+      // Try to access the plugin property (it's internal but we can access it)
+      // The plugin structure: edgeDevice.plugin.connectivityPlugin
+      if (edgeDeviceAny.plugin && edgeDeviceAny.plugin.connectivityPlugin) {
+        const azureAdapter = edgeDeviceAny.plugin.connectivityPlugin;
 
-    //   try {
-    //     // Try to parse as JSON
-    //     const parsedMessage = JSON.parse(message);
-    //     this.handleCloudMessage(parsedMessage);
-    //   } catch (error) {
-    //     // If not JSON, log as plain text
-    //     this.logger.log(`📨 Plain text message: ${message}`);
-    //   }
-    // });
+        // CRITICAL FIX: Patch the _handleIncomingMessage method to handle both JSON and plain text
+        // The original implementation tries to parse ALL messages as JSON, which fails for plain text
+        const originalHandleIncomingMessage = azureAdapter._handleIncomingMessage.bind(azureAdapter);
+        
+        azureAdapter._handleIncomingMessage = (message: any) => {
+          let payload: any;
+          let messageProcessed = false;
+          const messageType = message.properties?.getValue?.('type') || 'unknown';
+          
+          try {
+            // Try to parse as JSON first
+            const messageData = message.getData().toString();
+            try {
+              payload = JSON.parse(messageData);
+              // Log JSON messages at debug level if available, otherwise use log
+              if (this.logger.debug) {
+                this.logger.debug(`Received JSON message: ${JSON.stringify(payload)}`);
+              } else {
+                this.logger.log(`Received JSON message: ${JSON.stringify(payload)}`);
+              }
+            } catch (parseError) {
+              // It's plain text, not JSON - handle it as plain text
+              payload = messageData;
+              // Log plain text messages at debug level if available, otherwise use log
+              if (this.logger.debug) {
+                this.logger.debug(`Received plain text message: ${payload}`);
+              } else {
+                this.logger.log(`Received plain text message: ${payload}`);
+              }
+              
+              // Call the handler for plain text messages
+              const handler = azureAdapter._getMessageHandler(messageType);
+              if (handler) {
+                handler(message, payload);
+                messageProcessed = true;
+              } else {
+                // No handler registered, handle as plain text
+                this.handlePlainTextMessage(payload);
+                messageProcessed = true;
+              }
+              
+              // Acknowledge the message
+              azureAdapter._acknowledgeMessage(message, messageProcessed);
+              return;
+            }
+            
+            // For JSON messages, proceed with normal handler logic
+            const handler = azureAdapter._getMessageHandler(messageType);
+            if (handler) {
+              handler(message, payload);
+              messageProcessed = true;
+            } else {
+              this.logger.warn(`No handler registered for message type: ${messageType}`);
+              // Try to handle as generic JSON message
+              this.handleCloudMessage(payload);
+              messageProcessed = true;
+            }
+          } catch (error) {
+            this.logger.error(`Error processing received message: ${error instanceof Error ? error.message : String(error)}`);
+            // Try to handle as plain text if it's a string
+            try {
+              const messageData = message.getData().toString();
+              this.handlePlainTextMessage(messageData);
+              messageProcessed = true;
+            } catch (fallbackError) {
+              // Ignore fallback errors
+            }
+          }
+          
+          // Acknowledge the message
+          azureAdapter._acknowledgeMessage(message, messageProcessed);
+        };
 
-    this.logger.log('📨 Cloud-to-Device message handlers not yet supported in current edge-assembly version');
+        // Register a catch-all handler for 'unknown' type (default when no type property is set)
+        azureAdapter.registerMessageHandler('unknown', (message: any, payload: any) => {
+          this.handleIncomingMessage(message, payload);
+        });
+
+        // Register handlers for specific message types
+        azureAdapter.registerMessageHandler('alert', (message: any, payload: any) => {
+          this.handleIncomingMessage(message, payload);
+        });
+
+        azureAdapter.registerMessageHandler('config_update', (message: any, payload: any) => {
+          this.handleIncomingMessage(message, payload);
+        });
+
+        azureAdapter.registerMessageHandler('notification', (message: any, payload: any) => {
+          this.handleIncomingMessage(message, payload);
+        });
+
+        azureAdapter.registerMessageHandler('command', (message: any, payload: any) => {
+          this.handleIncomingMessage(message, payload);
+        });
+
+        this.logger.log('📨 Cloud-to-Device message handlers registered successfully');
+      } else {
+        this.logger.warn('⚠️  Could not access AzureAdapter - C2D messages may not be handled properly');
+        this.logger.warn('⚠️  This may cause JSON parsing errors for plain text messages');
+      }
+    } catch (error) {
+      this.logger.error('❌ Failed to register C2D message handlers:', error);
+      this.logger.warn('⚠️  C2D messages may not be handled properly');
+    }
   }
 
   /**
-   * Handle parsed cloud-to-device messages
+   * Handle incoming cloud-to-device messages
+   * This method handles both JSON and plain text messages
+   */
+  private handleIncomingMessage(message: any, payload: any) {
+    try {
+      // The payload might already be parsed as JSON, or it might be a string
+      let parsedPayload: any;
+      
+      if (typeof payload === 'string') {
+        // Try to parse as JSON, but handle plain text gracefully
+        try {
+          parsedPayload = JSON.parse(payload);
+        } catch (parseError) {
+          // It's plain text, not JSON
+          this.logger.log(`📨 Plain text message received: ${payload}`);
+          this.handlePlainTextMessage(payload);
+          return;
+        }
+      } else {
+        // Already parsed or is an object
+        parsedPayload = payload;
+      }
+
+      // Handle structured JSON messages
+      this.handleCloudMessage(parsedPayload);
+    } catch (error) {
+      this.logger.error(`❌ Error handling incoming message: ${error instanceof Error ? error.message : String(error)}`);
+      // If payload is a string, try to handle it as plain text
+      if (typeof payload === 'string') {
+        this.logger.log(`📨 Treating as plain text message: ${payload}`);
+        this.handlePlainTextMessage(payload);
+      }
+    }
+  }
+
+  /**
+   * Handle plain text messages
+   */
+  private handlePlainTextMessage(message: string) {
+    this.logger.log(`📨 Plain text C2D message: ${message}`);
+    // You can add custom logic here for plain text messages
+    // For example, you might want to log them, display them, or trigger specific actions
+  }
+
+  /**
+   * Handle parsed cloud-to-device messages (JSON format)
    */
   private handleCloudMessage(message: any) {
     const { type, payload, timestamp } = message;
@@ -272,7 +414,7 @@ export class EdgeAssemblyService implements OnModuleInit {
     // Handle different message types
     switch (type) {
       case 'alert':
-        this.logger.warn(`🚨 Alert received: ${payload.message}`);
+        this.logger.warn(`🚨 Alert received: ${payload?.message || JSON.stringify(payload)}`);
         break;
 
       case 'config_update':
@@ -281,16 +423,17 @@ export class EdgeAssemblyService implements OnModuleInit {
         break;
 
       case 'notification':
-        this.logger.log(`🔔 Notification: ${payload.message}`);
+        this.logger.log(`🔔 Notification: ${payload?.message || JSON.stringify(payload)}`);
         break;
 
       case 'command':
-        this.logger.log(`📋 Command: ${payload.command}`);
+        this.logger.log(`📋 Command: ${payload?.command || JSON.stringify(payload)}`);
         // Execute command logic here
         break;
 
       default:
         this.logger.log(`❓ Unknown message type: ${type || 'none'}`);
+        this.logger.log(`📦 Full message: ${JSON.stringify(message)}`);
     }
   }
 
