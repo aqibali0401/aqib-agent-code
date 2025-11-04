@@ -48,12 +48,13 @@ async function main() {
     console.log('═'.repeat(60));
     
     console.log('\nNext Steps:');
-    console.log('  1. Copy the Device ID above');
-    console.log('  2. Add it to your .env file:');
-    console.log(`     DEVICE_ID=${deviceId}`);
+    console.log('  1. The Device ID above will be generated automatically at runtime');
+    console.log('  2. You do NOT need to add DEVICE_ID to your .env file');
     console.log('  3. Ensure your X.509 certificate has this as the CN (Common Name)');
     console.log('  4. If you need to generate a certificate with this ID, run:');
     console.log('     node scripts/generateDynamicCert.js');
+    console.log('\nNote: Device-specific variables (DEVICE_ID, X509_CERT_FILE, X509_KEY_FILE)');
+    console.log('      are now set dynamically at runtime, not from .env file');
     console.log('═'.repeat(60));
     
   } catch (error) {

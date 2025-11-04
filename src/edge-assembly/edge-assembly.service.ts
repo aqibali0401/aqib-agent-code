@@ -9,12 +9,15 @@ import { EdgeAssembly } from '@qsc/edge-assembly';
 import { formatDeviceId } from '../utils/device-id';
 import { getHostDeviceSnapshot } from '../utils/device-info';
 import { DEVICE_TYPE } from '../constants/app.constants';
+import * as path from 'path';
+import * as fs from 'fs';
 
 @Injectable()
 export class EdgeAssemblyService implements OnModuleInit {
   private edgeDevice: EdgeAssembly;
   private isInitialized = false;
   private telemetryInterval: NodeJS.Timeout | null = null;
+  private deviceId: string | null = null;
 
   constructor(
     @Inject(WINSTON_MODULE_NEST_PROVIDER)
@@ -28,6 +31,62 @@ export class EdgeAssemblyService implements OnModuleInit {
   }
 
   /**
+   * Prepare device-specific configuration dynamically
+   * This ensures all device-specific env variables are set before EdgeAssembly initialization
+   */
+  private async prepareDeviceConfiguration() {
+    // Get device information from system
+    const snapshot = await getHostDeviceSnapshot();
+    const model = snapshot.system.model || 'MODEL';
+    const serial = snapshot.system.serial || snapshot.system.uuid || 'SERIAL';
+
+    // Generate device ID dynamically (must match certificate CN)
+    this.deviceId = formatDeviceId(DEVICE_TYPE, model, serial);
+    this.logger.log(`Generated device ID: ${this.deviceId}`);
+
+    // Resolve certificate paths (relative to project root)
+    const projectRoot = process.cwd();
+    const certificatesDir = path.join(projectRoot, 'certificates');
+    const certFile = path.join(certificatesDir, 'device.pem');
+    const keyFile = path.join(certificatesDir, 'device.key');
+
+    // Convert to relative paths (as expected by edge-assembly)
+    const relativeCertFile = path.relative(projectRoot, certFile).replace(/\\/g, '/');
+    const relativeKeyFile = path.relative(projectRoot, keyFile).replace(/\\/g, '/');
+
+    // Verify certificate files exist
+    if (!fs.existsSync(certFile)) {
+      throw new Error(
+        `Device certificate not found at: ${certFile}\n` +
+        `Please generate certificate with: node scripts/generateDynamicCert.js`
+      );
+    }
+    if (!fs.existsSync(keyFile)) {
+      throw new Error(
+        `Device private key not found at: ${keyFile}\n` +
+        `Please generate certificate with: node scripts/generateDynamicCert.js`
+      );
+    }
+
+    // Set all device-specific environment variables BEFORE EdgeAssembly initialization
+    process.env.DEVICE_ID = this.deviceId;
+    process.env.X509_CERT_FILE = relativeCertFile;
+    process.env.X509_KEY_FILE = relativeKeyFile;
+
+    // Set X509_PASSPHRASE if provided in env (optional)
+    if (process.env.X509_PASSPHRASE) {
+      // Already set from .env, no need to change
+    }
+
+    this.logger.log(`-----Device configuration prepared:`);
+    this.logger.log(`  DEVICE_ID: ${this.deviceId}`);
+    this.logger.log(`  X509_CERT_FILE: ${relativeCertFile}`);
+    this.logger.log(`------  X509_KEY_FILE: ${relativeKeyFile}`);
+
+    return { deviceId: this.deviceId, snapshot };
+  }
+
+  /**
    * Initialize EdgeAssembly after the application starts
    * This method should be called from main.ts after the app starts listening
    */
@@ -38,29 +97,12 @@ export class EdgeAssemblyService implements OnModuleInit {
     }
 
     try {
-      // Get device information from system
-      const snapshot = await getHostDeviceSnapshot();
-      const model = snapshot.system.model || 'MODEL';
-      const serial = snapshot.system.serial || snapshot.system.uuid || 'SERIAL';
+      // Prepare device-specific configuration (sets env vars dynamically)
+      const { deviceId, snapshot } = await this.prepareDeviceConfiguration();
 
-      // Generate device ID (must match certificate CN)
-      const deviceId = formatDeviceId(DEVICE_TYPE, model, serial);
-      this.logger.log(`Using device ID: ${deviceId}`);
-
-      // Verify the DEVICE_ID in env matches the generated one
-      const envDeviceId = process.env.DEVICE_ID;
-      if (envDeviceId && envDeviceId !== deviceId) {
-        this.logger.warn(
-          `ENV DEVICE_ID (${envDeviceId}) differs from generated ID (${deviceId}). Using env value.`
-        );
-      } else {
-        // Set DEVICE_ID environment variable for edge-assembly config
-        process.env.DEVICE_ID = deviceId;
-      }
-
-      // Initialize EdgeAssembly
+      // Now initialize EdgeAssembly (it will read the dynamically set env vars)
       this.logger.log('Initializing EdgeAssembly...');
-      await this.edgeDevice.init();  // ---- Reads ALL env vars at this point
+      await this.edgeDevice.init();    // ---- Reads ALL env vars at this point
       this.logger.log('EdgeAssembly configuration loaded');
 
       // Pair device with IoT Hub via DPS
@@ -99,7 +141,7 @@ export class EdgeAssemblyService implements OnModuleInit {
       // Send initial connection message/telemetry
       try {
         const deviceConnectPayload = {
-          deviceId: process.env.DEVICE_ID,
+          deviceId: this.deviceId || deviceId,
           status: 'online',
           hostname: snapshot.hostname,
           model: snapshot.system?.model,
@@ -252,7 +294,29 @@ export class EdgeAssemblyService implements OnModuleInit {
       }
     });
 
-    this.logger.log('Direct method handlers registered (reboot, upgrade, healthCheck)');
+    // Get device information
+    this.edgeDevice.onRequest('getDeviceInfo', async (requestId, data) => {
+      this.logger.log(`Get device info requested [${requestId}]`);
+
+      try {
+        return {
+          status: 'success',
+          deviceId: this.deviceId || process.env.DEVICE_ID || 'unknown',
+          deviceType: DEVICE_TYPE,
+          timestamp: new Date().toISOString(),
+          requestId,
+        };
+      } catch (error) {
+        this.logger.error('Error getting device info:', error);
+        return {
+          status: 'error',
+          error: error instanceof Error ? error.message : String(error),
+          requestId,
+        };
+      }
+    });
+
+    this.logger.log('Direct method handlers registered (reboot, upgrade, healthCheck, getDeviceInfo)');
   }
 
   /**
@@ -527,7 +591,7 @@ export class EdgeAssemblyService implements OnModuleInit {
         const snapshot = await getHostDeviceSnapshot();
 
         const telemetryData = {
-          deviceId: process.env.DEVICE_ID,
+          deviceId: this.deviceId || process.env.DEVICE_ID,
           timestamp: new Date().toISOString(),
           uptime: snapshot.uptime,
           hostname: snapshot.hostname,
@@ -583,6 +647,13 @@ export class EdgeAssemblyService implements OnModuleInit {
    */
   getEdgeDevice(): EdgeAssembly {
     return this.edgeDevice;
+  }
+
+  /**
+   * Get the dynamically generated device ID
+   */
+  getDeviceId(): string | null {
+    return this.deviceId;
   }
 
   /**

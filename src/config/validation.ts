@@ -16,11 +16,23 @@ class EnvironmentVariables {
 
   @IsOptional()
   @IsString()
-  DEVICE_ID?: string;
+  DEVICE_ID?: string; // Set dynamically at runtime - optional in .env
 
   @IsOptional()
   @IsString()
   DEVICE_TYPE?: string;
+
+  @IsOptional()
+  @IsString()
+  X509_CERT_FILE?: string; // Set dynamically at runtime - optional in .env
+
+  @IsOptional()
+  @IsString()
+  X509_KEY_FILE?: string; // Set dynamically at runtime - optional in .env
+
+  @IsOptional()
+  @IsString()
+  X509_PASSPHRASE?: string; // Optional - only needed if certificates are encrypted
 
   @IsOptional()
   @IsString()
