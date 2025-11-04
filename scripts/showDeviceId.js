@@ -4,15 +4,16 @@
  * The device ID must match the CN (Common Name) in your X.509 certificate
  */
 
+require('dotenv').config();
 const si = require('systeminformation');
 
-const DEVICE_TYPE = 'AIO';
+const DEVICE_TYPE = process.env.DEVICE_TYPE || 'AIO';
 
 // Normalize function (same as device-id.ts)
 const normalize = (value) => value.trim().replace(/\s+/g, '-');
 
 async function getSystemInfo() {
-  console.log('🔍 Collecting system information...\n');
+  console.log('Collecting system information...\n');
   const system = await si.system();
   
   const model = system.model || 'MODEL';
@@ -35,18 +36,18 @@ function generateDeviceId(model, serial) {
 }
 
 async function main() {
-  console.log('\n🎯 Device ID Generator\n');
+  console.log('\nDevice ID Generator\n');
   
   try {
     const { model, serial } = await getSystemInfo();
     const deviceId = generateDeviceId(model, serial);
     
-    console.log('\n✅ Generated Device ID:');
+    console.log('\nGenerated Device ID:');
     console.log('═'.repeat(60));
     console.log(`\n  ${deviceId}\n`);
     console.log('═'.repeat(60));
     
-    console.log('\n📋 Next Steps:');
+    console.log('\nNext Steps:');
     console.log('  1. Copy the Device ID above');
     console.log('  2. Add it to your .env file:');
     console.log(`     DEVICE_ID=${deviceId}`);
@@ -56,7 +57,7 @@ async function main() {
     console.log('═'.repeat(60));
     
   } catch (error) {
-    console.error('\n❌ Error:', error.message);
+    console.error('\nError:', error.message);
     process.exit(1);
   }
 }

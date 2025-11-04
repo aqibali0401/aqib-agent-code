@@ -28,7 +28,7 @@ async function bootstrap() {
   const edgeAssemblyService = app.get(EdgeAssemblyService);
 
   winstonLogger.log('========================================');
-  winstonLogger.log('🚀 Starting with Edge Assembly');
+  winstonLogger.log(' Starting with Edge Assembly');
   winstonLogger.log('========================================');
   
   // Initialize Edge Assembly

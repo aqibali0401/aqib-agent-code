@@ -20,12 +20,12 @@ function checkRootCA() {
   const rootKeyPath = path.join(CERTIFICATES_DIR, 'rootCA.key');
   
   if (!fs.existsSync(rootCertPath) || !fs.existsSync(rootKeyPath)) {
-    console.error('❌ Error: Root CA certificate and key not found!');
+    console.error('Error: Root CA certificate and key not found!');
     console.error('   Please generate Root CA first.');
     process.exit(1);
   }
   
-  console.log('✅ Root CA found');
+  console.log('Root CA found');
 }
 
 function createIntermediateExtConfig() {
@@ -37,12 +37,12 @@ subjectKeyIdentifier = hash
 authorityKeyIdentifier = keyid:always,issuer:always`;
 
   fs.writeFileSync(extConfigPath, config);
-  console.log('✅ Created intermediate extension config');
+  console.log('Created intermediate extension config');
   return extConfigPath;
 }
 
 function generateIntermediateCertificate() {
-  console.log('\n🔐 Generating Intermediate CA...');
+  console.log('\nGenerating Intermediate CA...');
   
   const intermediateKeyPath = path.join(CERTIFICATES_DIR, 'intermediate.key');
   const intermediateCsrPath = path.join(CERTIFICATES_DIR, 'intermediate.csr');
@@ -77,13 +77,13 @@ function generateIntermediateCertificate() {
   );
   
   // Step 5: Verify the Intermediate certificate
-  console.log('\n🔍 Verifying Intermediate certificate...');
+  console.log('\nVerifying Intermediate certificate...');
   execSync(`openssl verify -CAfile "${rootCertPath}" "${intermediateCertPath}"`, 
     { stdio: 'inherit' }
   );
   
   // Step 6: Display certificate details
-  console.log('\n📋 Intermediate CA Certificate Details:');
+  console.log('\nIntermediate CA Certificate Details:');
   const certInfo = execSync(
     `openssl x509 -in "${intermediateCertPath}" -noout -subject -issuer -dates`,
     { encoding: 'utf8' }
@@ -95,15 +95,15 @@ function generateIntermediateCertificate() {
     fs.unlinkSync(intermediateCsrPath);
   }
   
-  console.log('\n✅ Intermediate CA generated successfully!');
+  console.log('\nIntermediate CA generated successfully!');
   console.log(`   Certificate: ${intermediateCertPath}`);
   console.log(`   Private Key: ${intermediateKeyPath}`);
-  console.log(`\n⚠️  IMPORTANT: Keep intermediate.key SECURE!`);
+  console.log(`\nIMPORTANT: Keep intermediate.key SECURE!`);
   console.log(`   In production, store it in Azure Key Vault or HSM.`);
 }
 
 function main() {
-  console.log('🚀 Intermediate CA Generator\n');
+  console.log('Intermediate CA Generator\n');
   console.log('='.repeat(60));
   
   try {
@@ -112,8 +112,8 @@ function main() {
     generateIntermediateCertificate();
     
     console.log('\n' + '='.repeat(60));
-    console.log('✅ Intermediate CA is ready!\n');
-    console.log('📌 Next steps:');
+    console.log('Intermediate CA is ready!\n');
+    console.log('Next steps:');
     console.log('   1. Upload intermediate.pem to Azure DPS (NOT rootCA.pem)');
     console.log('   2. Verify intermediate.pem in DPS');
     console.log('   3. Create enrollment group using intermediate CA');
@@ -122,7 +122,7 @@ function main() {
     console.log('='.repeat(60));
     
   } catch (error) {
-    console.error('\n❌ Error:', error.message);
+    console.error('\nError:', error.message);
     process.exit(1);
   }
 }

@@ -80,7 +80,7 @@ class BuildAndPackageUtility {
 
       console.log();
       console.log('='.repeat(60));
-      console.log('✓ Build and Package completed successfully!');
+      console.log('Build and Package completed successfully!');
       console.log('='.repeat(60));
     } catch (error) {
       console.error('ERROR: Build and package failed:', error);
@@ -205,7 +205,7 @@ class BuildAndPackageUtility {
 
         stream.on('end', () => {
           const checksum = hash.digest('hex');
-          console.log(`✓ Checksum (${algorithm}): ${checksum}`);
+          console.log(`Checksum (${algorithm}): ${checksum}`);
           console.log();
           resolve(checksum);
         });
@@ -261,7 +261,7 @@ class BuildAndPackageUtility {
         'utf8'
       );
 
-      console.log(`✓ Manifest created: ${manifestPath}`);
+      console.log(`Manifest created: ${manifestPath}`);
       console.log();
       console.log('Manifest Contents:');
       console.log('-'.repeat(60));

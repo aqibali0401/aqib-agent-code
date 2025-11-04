@@ -18,7 +18,7 @@ function ensureCertificatesDir() {
 }
 
 function generateRootCA() {
-  console.log('🔐 Generating Root CA Certificate\n');
+  console.log('Generating Root CA Certificate\n');
   console.log('='.repeat(60));
 
   const rootKeyPath = path.join(CERTIFICATES_DIR, 'rootCA.key');
@@ -26,21 +26,21 @@ function generateRootCA() {
 
   // Check if Root CA already exists
   if (fs.existsSync(rootKeyPath) && fs.existsSync(rootCertPath)) {
-    console.log('⚠️  Root CA already exists!');
+    console.log('Root CA already exists!');
     console.log(`   Certificate: ${rootCertPath}`);
     console.log(`   Private Key: ${rootKeyPath}`);
-    console.log('\n❓ Do you want to overwrite? (This will invalidate all existing certificates)');
+    console.log('\nDo you want to overwrite? (This will invalidate all existing certificates)');
     console.log('   To continue, delete the existing files manually and run again.');
     process.exit(0);
   }
 
   try {
     // Step 1: Generate Root CA private key
-    console.log('📝 Generating Root CA private key (4096-bit RSA)...');
+    console.log('Generating Root CA private key (4096-bit RSA)...');
     execSync(`openssl genrsa -out "${rootKeyPath}" 4096`, { stdio: 'inherit' });
 
     // Step 2: Generate Root CA certificate (self-signed)
-    console.log('📝 Generating Root CA certificate (self-signed, 10 years)...');
+    console.log('Generating Root CA certificate (self-signed, 10 years)...');
     execSync(
       `openssl req -new -x509 -days 3650 ` +
       `-key "${rootKeyPath}" -out "${rootCertPath}" ` +
@@ -49,19 +49,19 @@ function generateRootCA() {
     );
 
     // Step 3: Display certificate details
-    console.log('\n📋 Root CA Certificate Details:');
+    console.log('\nRoot CA Certificate Details:');
     const certInfo = execSync(
       `openssl x509 -in "${rootCertPath}" -noout -subject -issuer -dates`,
       { encoding: 'utf8' }
     );
     console.log(certInfo);
 
-    console.log('\n✅ Root CA generated successfully!');
+    console.log('\nRoot CA generated successfully!');
     console.log(`   Certificate: ${rootCertPath}`);
     console.log(`   Private Key: ${rootKeyPath}`);
 
     console.log('\n' + '='.repeat(60));
-    console.log('📌 Next steps:');
+    console.log('Next steps:');
     console.log('   1. Generate Intermediate CA: npm run generate-intermediate');
     console.log('   2. Upload intermediate.pem to Azure DPS (NOT rootCA.pem)');
     console.log('   3. Move rootCA.key to OFFLINE storage (air-gapped/HSM)');
@@ -69,8 +69,8 @@ function generateRootCA() {
     console.log('='.repeat(60));
 
   } catch (error) {
-    console.error('\n❌ Error generating Root CA:', error.message);
-    console.log('\n💡 Make sure OpenSSL is installed and available in PATH');
+    console.error('\nError generating Root CA:', error.message);
+    console.log('\nMake sure OpenSSL is installed and available in PATH');
     process.exit(1);
   }
 }

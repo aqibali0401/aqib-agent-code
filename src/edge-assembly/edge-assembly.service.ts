@@ -8,7 +8,7 @@ import { WINSTON_MODULE_NEST_PROVIDER } from 'nest-winston';
 import { EdgeAssembly } from '@qsc/edge-assembly';
 import { formatDeviceId } from '../utils/device-id';
 import { getHostDeviceSnapshot } from '../utils/device-info';
-import { DEVICE_TYPE, EVENT_TYPE } from '../constants/app.constants';
+import { DEVICE_TYPE } from '../constants/app.constants';
 
 @Injectable()
 export class EdgeAssemblyService implements OnModuleInit {
@@ -59,32 +59,32 @@ export class EdgeAssemblyService implements OnModuleInit {
       }
 
       // Initialize EdgeAssembly
-      this.logger.log('🚀 Initializing EdgeAssembly...');
-      await this.edgeDevice.init();
-      this.logger.log('✓ EdgeAssembly configuration loaded');
+      this.logger.log('Initializing EdgeAssembly...');
+      await this.edgeDevice.init();  // ---- Reads ALL env vars at this point
+      this.logger.log('EdgeAssembly configuration loaded');
 
       // Pair device with IoT Hub via DPS
-      this.logger.log('🔗 Pairing device with Azure IoT Hub via DPS...');
+      this.logger.log('Pairing device with Azure IoT Hub via DPS...');
       await this.edgeDevice.pair();
-      this.logger.log('✓ Device paired successfully');
+      this.logger.log('Device paired successfully');
 
       // Check pair status
       const pairStatus = await this.edgeDevice.getPairStatus();
-      this.logger.log(`📋 Pair Status: ${pairStatus}`);
+      this.logger.log(`Pair Status: ${pairStatus}`);
 
       // Connect to IoT Hub
-      this.logger.log('🌐 Connecting to IoT Hub...');
+      this.logger.log('Connecting to IoT Hub...');
       await this.edgeDevice.connect();
-      this.logger.log('✓ Connected to IoT Hub');
+      this.logger.log('Connected to IoT Hub');
 
       // Verify connection status
       const ctrlStatus = await this.edgeDevice.getCtrlStatus();
-      this.logger.log(`🎮 Control Status: ${ctrlStatus}`);
+      this.logger.log(`Control Status: ${ctrlStatus}`);
 
       // Ping to verify connectivity
       const isConnected = await this.edgeDevice.ping();
       this.logger.log(
-        `📡 Connection status: ${isConnected ? 'CONNECTED' : 'DISCONNECTED'}`
+        `Connection status: ${isConnected ? 'CONNECTED' : 'DISCONNECTED'}`
       );
 
       // Sync initial device state (twin properties)
@@ -93,15 +93,36 @@ export class EdgeAssemblyService implements OnModuleInit {
       // Register command handlers
       this.registerCommandHandlers();
 
+      // Mark initialized before sending first telemetry to avoid guard failures
+      this.isInitialized = true;
+
+      // Send initial connection message/telemetry
+      try {
+        const deviceConnectPayload = {
+          deviceId: process.env.DEVICE_ID,
+          status: 'online',
+          hostname: snapshot.hostname,
+          model: snapshot.system?.model,
+          serial: snapshot.system?.serial,
+          firmwareVersion: process.env.APP_VERSION || '1.0.0',
+          deviceType: DEVICE_TYPE,
+        };
+
+        await this.sendTelemetry('deviceConnected', deviceConnectPayload);
+        this.logger.log('Initial device connection telemetry sent successfully');
+      } catch (error) {
+        this.logger.warn(`Failed to send initial device connection telemetry: ${error instanceof Error ? error.message : String(error)}`);
+        // Don't fail initialization if message sending fails
+      }
+
       // Start periodic telemetry (optional - can be enabled/disabled via env)
       if (process.env.ENABLE_PERIODIC_TELEMETRY === 'true') {
         this.startPeriodicTelemetry();
       }
 
-      this.isInitialized = true;
-      this.logger.log('✅ EdgeAssembly fully initialized and connected');
+      this.logger.log('EdgeAssembly fully initialized and connected');
     } catch (error) {
-      this.logger.error('❌ Failed to initialize EdgeAssembly:', error);
+      this.logger.error('Failed to initialize EdgeAssembly:', error);
       throw error;
     }
   }
@@ -125,7 +146,7 @@ export class EdgeAssemblyService implements OnModuleInit {
       };
 
       await this.edgeDevice.syncState(desiredProperties);
-      this.logger.log('📤 Device twin updated successfully');
+      this.logger.log('Device twin updated successfully');
     } catch (error) {
       this.logger.error('Failed to sync device state:', error);
       throw error;
@@ -149,7 +170,7 @@ export class EdgeAssemblyService implements OnModuleInit {
   private registerDirectMethods() {
     // Reboot command handler
     this.edgeDevice.onRequest('reboot', async (requestId, data) => {
-      this.logger.log(`🔄 Reboot command received [${requestId}]:`, data);
+      this.logger.log(`Reboot command received [${requestId}]:`, data);
 
       try {
         // Add your reboot logic here
@@ -175,7 +196,7 @@ export class EdgeAssemblyService implements OnModuleInit {
 
     // Upgrade command handler
     this.edgeDevice.onRequest('upgrade', async (requestId, data) => {
-      this.logger.log(`⬆️  Upgrade command received [${requestId}]:`, data);
+      this.logger.log(`Upgrade command received [${requestId}]:`, data);
 
       try {
         const payload = typeof data === 'string' ? JSON.parse(data) : data;
@@ -209,7 +230,7 @@ export class EdgeAssemblyService implements OnModuleInit {
 
     // Custom health check command
     this.edgeDevice.onRequest('healthCheck', async (requestId, data) => {
-      this.logger.log(`💊 Health check requested [${requestId}]`);
+      this.logger.log(`Health check requested [${requestId}]`);
 
       try {
         const snapshot = await getHostDeviceSnapshot();
@@ -231,7 +252,7 @@ export class EdgeAssemblyService implements OnModuleInit {
       }
     });
 
-    this.logger.log('📥 Direct method handlers registered (reboot, upgrade, healthCheck)');
+    this.logger.log('Direct method handlers registered (reboot, upgrade, healthCheck)');
   }
 
   /**
@@ -346,14 +367,14 @@ export class EdgeAssemblyService implements OnModuleInit {
           this.handleIncomingMessage(message, payload);
         });
 
-        this.logger.log('📨 Cloud-to-Device message handlers registered successfully');
+        this.logger.log('Cloud-to-Device message handlers registered successfully');
       } else {
-        this.logger.warn('⚠️  Could not access AzureAdapter - C2D messages may not be handled properly');
-        this.logger.warn('⚠️  This may cause JSON parsing errors for plain text messages');
+        this.logger.warn('Could not access AzureAdapter - C2D messages may not be handled properly');
+        this.logger.warn('This may cause JSON parsing errors for plain text messages');
       }
     } catch (error) {
-      this.logger.error('❌ Failed to register C2D message handlers:', error);
-      this.logger.warn('⚠️  C2D messages may not be handled properly');
+      this.logger.error('Failed to register C2D message handlers:', error);
+      this.logger.warn('C2D messages may not be handled properly');
     }
   }
 
@@ -372,7 +393,7 @@ export class EdgeAssemblyService implements OnModuleInit {
           parsedPayload = JSON.parse(payload);
         } catch (parseError) {
           // It's plain text, not JSON
-          this.logger.log(`📨 Plain text message received: ${payload}`);
+          this.logger.log(`Plain text message received: ${payload}`);
           this.handlePlainTextMessage(payload);
           return;
         }
@@ -384,10 +405,10 @@ export class EdgeAssemblyService implements OnModuleInit {
       // Handle structured JSON messages
       this.handleCloudMessage(parsedPayload);
     } catch (error) {
-      this.logger.error(`❌ Error handling incoming message: ${error instanceof Error ? error.message : String(error)}`);
+      this.logger.error(`Error handling incoming message: ${error instanceof Error ? error.message : String(error)}`);
       // If payload is a string, try to handle it as plain text
       if (typeof payload === 'string') {
-        this.logger.log(`📨 Treating as plain text message: ${payload}`);
+        this.logger.log(`Treating as plain text message: ${payload}`);
         this.handlePlainTextMessage(payload);
       }
     }
@@ -397,7 +418,7 @@ export class EdgeAssemblyService implements OnModuleInit {
    * Handle plain text messages
    */
   private handlePlainTextMessage(message: string) {
-    this.logger.log(`📨 Plain text C2D message: ${message}`);
+    this.logger.log(`Plain text C2D message: ${message}`);
     // You can add custom logic here for plain text messages
     // For example, you might want to log them, display them, or trigger specific actions
   }
@@ -408,55 +429,75 @@ export class EdgeAssemblyService implements OnModuleInit {
   private handleCloudMessage(message: any) {
     const { type, payload, timestamp } = message;
 
-    this.logger.log(`📬 Message Type: ${type || 'unknown'}`);
-    this.logger.log(`📬 Payload:`, payload);
+    this.logger.log(`Message Type: ${type || 'unknown'}`);
+    this.logger.log(`Payload:`, payload);
 
     // Handle different message types
     switch (type) {
       case 'alert':
-        this.logger.warn(`🚨 Alert received: ${payload?.message || JSON.stringify(payload)}`);
+        this.logger.warn(`Alert received: ${payload?.message || JSON.stringify(payload)}`);
         break;
 
       case 'config_update':
-        this.logger.log(`⚙️  Configuration update: ${JSON.stringify(payload)}`);
+        this.logger.log(`Configuration update: ${JSON.stringify(payload)}`);
         // Update your application configuration here
         break;
 
       case 'notification':
-        this.logger.log(`🔔 Notification: ${payload?.message || JSON.stringify(payload)}`);
+        this.logger.log(`Notification: ${payload?.message || JSON.stringify(payload)}`);
         break;
 
       case 'command':
-        this.logger.log(`📋 Command: ${payload?.command || JSON.stringify(payload)}`);
+        this.logger.log(`Command: ${payload?.command || JSON.stringify(payload)}`);
         // Execute command logic here
         break;
 
       default:
-        this.logger.log(`❓ Unknown message type: ${type || 'none'}`);
-        this.logger.log(`📦 Full message: ${JSON.stringify(message)}`);
+        this.logger.log(`Unknown message type: ${type || 'none'}`);
+        this.logger.log(`Full message: ${JSON.stringify(message)}`);
     }
   }
 
   /**
    * Send telemetry data to IoT Hub (Device-to-Cloud)
+   * Uses the internal TelemetryService from the edge-assembly package
    * 
-   * NOTE: Sending telemetry/messages is not yet supported in @qsc/edge-assembly v0.0.0-alpha.3
-   * The package currently only supports receiving Direct Methods via onRequest()
-   * This functionality will be available in a future version of the package.
+   * @param topic - Topic/route identifier (included in telemetry data as 'topic' field)
+   * @param data - Telemetry data to send (can be object or string)
    */
   async sendTelemetry(topic: string, data: any): Promise<void> {
-    if (!this.isInitialized) {
-      throw new Error('EdgeAssembly not initialized');
-    }
-
     try {
-      const message = typeof data === 'string' ? data : JSON.stringify(data);
-      // TODO: Uncomment when notify() method is available in edge-assembly package
-      // await this.edgeDevice.notify(topic, message);
-      this.logger.log(`📤 Telemetry NOT sent (feature not available yet) - Topic: ${topic}, Data: ${message}`);
-      this.logger.warn('Telemetry sending is not yet supported in the current edge-assembly version');
+      // Access the telemetryService through the plugin structure
+      const edgeDeviceAny = this.edgeDevice as any;
+      const telemetryService = edgeDeviceAny.plugin?.telemetryService;
+      const adapter = edgeDeviceAny.plugin?.connectivityPlugin;
+
+      // Ensure we are connected even if initialization flag hasn't been set yet
+      if (!adapter || typeof adapter.isConnected !== 'function' || !adapter.isConnected()) {
+        throw new Error('Not connected to Azure IoT Hub');
+      }
+
+      // Prepare telemetry payload
+      const telemetryPayload = typeof data === 'string' ? { message: data } : { ...data };
+      
+      // Add topic and timestamp to payload
+      telemetryPayload.topic = topic;
+      if (!telemetryPayload.timestamp) {
+        telemetryPayload.timestamp = new Date().toISOString();
+      }
+
+      // Prefer TelemetryService; fall back to adapter if needed
+      if (telemetryService && typeof telemetryService.sendTelemetry === 'function') {
+        await telemetryService.sendTelemetry(telemetryPayload);
+      } else if (adapter && typeof adapter.sendTelemetry === 'function') {
+        await adapter.sendTelemetry(telemetryPayload);
+      } else {
+        throw new Error('No telemetry sender available (TelemetryService and AzureAdapter missing)');
+      }
+
+      this.logger.log(`Telemetry sent successfully - Topic: ${topic}, Data: ${JSON.stringify(telemetryPayload)}`);
     } catch (error) {
-      this.logger.error('Failed to send telemetry:', error);
+      this.logger.error(`Failed to send telemetry: ${error instanceof Error ? error.message : String(error)}`);
       throw error;
     }
   }
@@ -479,7 +520,7 @@ export class EdgeAssemblyService implements OnModuleInit {
       return;
     }
 
-    this.logger.log(`📊 Starting periodic telemetry (every ${interval}ms)`);
+    this.logger.log(`Starting periodic telemetry (every ${interval}ms)`);
 
     this.telemetryInterval = setInterval(async () => {
       try {
@@ -510,7 +551,7 @@ export class EdgeAssemblyService implements OnModuleInit {
     if (this.telemetryInterval) {
       clearInterval(this.telemetryInterval);
       this.telemetryInterval = null;
-      this.logger.log('📊 Stopped periodic telemetry');
+      this.logger.log('Stopped periodic telemetry');
     }
   }
 
@@ -528,7 +569,7 @@ export class EdgeAssemblyService implements OnModuleInit {
 
         this.logger.log('Disconnecting from IoT Hub...');
         await this.edgeDevice.disconnect();
-        this.logger.log('✓ Disconnected from IoT Hub');
+        this.logger.log('Disconnected from IoT Hub');
 
         this.isInitialized = false;
       } catch (error) {

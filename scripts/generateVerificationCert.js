@@ -11,7 +11,7 @@ const CERTIFICATES_DIR = path.join(__dirname, "..", "certificates");
 
 function generateVerificationCertificate(verificationCode) {
   if (!verificationCode) {
-    console.error("❌ Verification code is required");
+    console.error("Verification code is required");
     console.log(
       "Usage: node scripts/generateVerificationCert.js <verification-code>"
     );
@@ -21,7 +21,7 @@ function generateVerificationCertificate(verificationCode) {
     process.exit(1);
   }
 
-  console.log("🔐 Generating verification certificate...");
+  console.log("Generating verification certificate...");
   console.log(`Verification code: ${verificationCode}`);
 
   try {
@@ -38,7 +38,7 @@ function generateVerificationCertificate(verificationCode) {
     // Check if intermediate CA files exist
     if (!fs.existsSync(intermediateKeyPath) || !fs.existsSync(intermediateCertPath)) {
       console.error(
-        "❌ Intermediate CA files not found. Run: npm run cert:intermediate"
+        "Intermediate CA files not found. Run: npm run cert:intermediate"
       );
       process.exit(1);
     }
@@ -70,11 +70,11 @@ function generateVerificationCertificate(verificationCode) {
     // Clean up CSR file
     fs.unlinkSync(verificationCsrPath);
 
-    console.log("✅ Verification certificate generated successfully!");
-    console.log(`📄 Verification certificate: ${verificationCertPath}`);
+    console.log("Verification certificate generated successfully!");
+    console.log(`Verification certificate: ${verificationCertPath}`);
     console.log(`   Signed by: Intermediate CA (intermediate.pem)`);
 
-    console.log("\n🔧 Next Steps:");
+    console.log("\nNext Steps:");
     console.log(
       "1. Upload verification.pem to Azure DPS certificate verification"
     );
@@ -84,7 +84,7 @@ function generateVerificationCertificate(verificationCode) {
     console.log("3. Create enrollment group using the verified intermediate CA");
   } catch (error) {
     console.error(
-      "❌ Error generating verification certificate:",
+      "Error generating verification certificate:",
       error.message
     );
     process.exit(1);

@@ -20,6 +20,10 @@ class EnvironmentVariables {
 
   @IsOptional()
   @IsString()
+  DEVICE_TYPE?: string;
+
+  @IsOptional()
+  @IsString()
   ENABLE_PERIODIC_TELEMETRY?: string;
 
   @IsOptional()

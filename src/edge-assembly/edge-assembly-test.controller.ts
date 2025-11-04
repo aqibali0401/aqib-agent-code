@@ -50,7 +50,7 @@ export class EdgeAssemblyTestController {
 
     try {
       await this.edgeAssemblyService.sendTelemetry(topic, data);
-      this.logger.log(`✅ Telemetry sent via API - Topic: ${topic}`);
+      this.logger.log(`Telemetry sent via API - Topic: ${topic}`);
 
       return {
         success: true,
@@ -90,7 +90,7 @@ export class EdgeAssemblyTestController {
 
     try {
       await this.edgeAssemblyService.sendMessage(message, topic);
-      this.logger.log(`✅ Message sent via API: ${message}`);
+      this.logger.log(`Message sent via API: ${message}`);
 
       return {
         success: true,
@@ -129,7 +129,7 @@ export class EdgeAssemblyTestController {
 
     try {
       await this.edgeAssemblyService.updateTwin(properties);
-      this.logger.log(`✅ Twin updated via API:`, properties);
+      this.logger.log(`Twin updated via API:`, properties);
 
       return {
         success: true,

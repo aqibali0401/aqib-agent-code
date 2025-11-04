@@ -1,22 +1,23 @@
 /**
  * Generate X.509 Device Certificate with Dynamic Device ID
  * This script creates a device certificate with CN based on system information
- * Format: AIO_{MODEL}_{SERIAL}
+ * Format: {DEVICE_TYPE}_{MODEL}_{SERIAL}
  */
 
+require('dotenv').config();
 const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const si = require('systeminformation');
 
 const CERTIFICATES_DIR = path.join(__dirname, '..', 'certificates');
-const DEVICE_TYPE = 'AIO';
+const DEVICE_TYPE = process.env.DEVICE_TYPE || 'AIO';
 
 // Normalize function (same as device-id.ts)
 const normalize = (value) => value.trim().replace(/\s+/g, '-');
 
 async function getSystemInfo() {
-  console.log('🔍 Collecting system information...');
+  console.log('Collecting system information...');
   const system = await si.system();
   
   const model = system.model || 'MODEL';
@@ -31,7 +32,7 @@ async function getSystemInfo() {
 
 function generateDeviceId(model, serial) {
   const deviceId = `${normalize(DEVICE_TYPE)}_${normalize(model)}_${normalize(serial)}`;
-  console.log(`\n✅ Generated Device ID: ${deviceId}`);
+  console.log(`\nGenerated Device ID: ${deviceId}`);
   return deviceId;
 }
 
@@ -46,16 +47,16 @@ function checkIntermediateCA() {
   const intermediateKeyPath = path.join(CERTIFICATES_DIR, 'intermediate.key');
   
   if (!fs.existsSync(intermediateCertPath) || !fs.existsSync(intermediateKeyPath)) {
-    console.error('❌ Error: Intermediate CA certificate and key not found!');
+    console.error('Error: Intermediate CA certificate and key not found!');
     console.error('   Please run: node scripts/generateIntermediateCert.js');
     process.exit(1);
   }
   
-  console.log('✅ Intermediate CA found');
+  console.log('Intermediate CA found');
 }
 
 function generateDeviceCertificate(deviceId) {
-  console.log('\n📜 Generating device certificate and private key...');
+  console.log('\nGenerating device certificate and private key...');
   
   const deviceKeyPath = path.join(CERTIFICATES_DIR, 'device.key');
   const deviceCsrPath = path.join(CERTIFICATES_DIR, 'device.csr');
@@ -94,7 +95,7 @@ function generateDeviceCertificate(deviceId) {
   console.log(`   Created full chain: ${fullChainPath}`);
   
   // Step 5: Verify the certificate (against intermediate + root chain)
-  console.log('\n🔍 Verifying certificate...');
+  console.log('\nVerifying certificate...');
   
   // Create temporary chain file for verification
   const rootCertPath = path.join(CERTIFICATES_DIR, 'rootCA.pem');
@@ -114,7 +115,7 @@ function generateDeviceCertificate(deviceId) {
     // Clean up chain file
     fs.unlinkSync(chainPath);
   } catch (error) {
-    console.log('⚠️  Note: Verification requires full CA chain (intermediate + root)');
+    console.log('Note: Verification requires full CA chain (intermediate + root)');
     console.log('   Your device certificate is valid and will work with Azure DPS');
   }
   
@@ -123,14 +124,14 @@ function generateDeviceCertificate(deviceId) {
     fs.unlinkSync(deviceCsrPath);
   }
   
-  console.log('\n✅ Device certificate generated successfully!');
+  console.log('\nDevice certificate generated successfully!');
   console.log(`   Certificate: ${deviceCertPath}`);
   console.log(`   Private Key: ${deviceKeyPath}`);
   console.log(`   Full Chain: ${fullChainPath}`);
 }
 
 async function main() {
-  console.log('🚀 Dynamic Device Certificate Generator\n');
+  console.log('Dynamic Device Certificate Generator\n');
   console.log('=' .repeat(60));
   
   try {
@@ -150,20 +151,20 @@ async function main() {
     generateDeviceCertificate(deviceId);
     
     console.log('\n' + '='.repeat(60));
-    console.log('✅ All done! Your device certificate is ready.');
-    console.log(`\n📌 Device ID: ${deviceId}`);
-    console.log('\n💡 Next steps:');
+    console.log('All done! Your device certificate is ready.');
+    console.log(`\nDevice ID: ${deviceId}`);
+    console.log('\nNext steps:');
     console.log('   1. Ensure intermediate.pem is uploaded and verified in Azure DPS');
     console.log('   2. Ensure enrollment group is created in DPS');
     console.log('   3. The certificate files are in the certificates/ folder');
     console.log('   4. Restart your application');
     console.log('   5. The device will auto-provision with the dynamic ID');
-    console.log('\n⚠️  Note: This device cert is signed by Intermediate CA');
+    console.log('\nNote: This device cert is signed by Intermediate CA');
     console.log('   Make sure DPS has intermediate.pem (NOT rootCA.pem)');
     console.log('=' .repeat(60));
     
   } catch (error) {
-    console.error('\n❌ Error:', error.message);
+    console.error('\nError:', error.message);
     process.exit(1);
   }
 }
