@@ -8,7 +8,7 @@ import { WINSTON_MODULE_NEST_PROVIDER } from 'nest-winston';
 import { EdgeAssembly } from '@qsc/edge-assembly';
 import { formatDeviceId } from '../utils/device-id';
 import { getHostDeviceSnapshot } from '../utils/device-info';
-import { DEVICE_TYPE } from '../constants/app.constants';
+import { DEVICE_TYPE, EVENT_TYPE } from '../constants/app.constants';
 import * as path from 'path';
 import * as fs from 'fs';
 
@@ -140,16 +140,7 @@ export class EdgeAssemblyService implements OnModuleInit {
 
       // Send initial connection message/telemetry
       try {
-        const deviceConnectPayload = {
-          deviceId: this.deviceId || deviceId,
-          status: 'online',
-          hostname: snapshot.hostname,
-          model: snapshot.system?.model,
-          serial: snapshot.system?.serial,
-          firmwareVersion: process.env.APP_VERSION || '1.0.0',
-          deviceType: DEVICE_TYPE,
-        };
-
+        const deviceConnectPayload = this.buildDeviceTelemetryPayload(snapshot, deviceId);
         await this.sendTelemetry('deviceConnected', deviceConnectPayload);
         this.logger.log('Initial device connection telemetry sent successfully');
       } catch (error) {
@@ -523,6 +514,26 @@ export class EdgeAssemblyService implements OnModuleInit {
   }
 
   /**
+   * Build standard device telemetry payload
+   * @param snapshot - Device snapshot from getHostDeviceSnapshot()
+   * @param fallbackDeviceId - Optional fallback device ID if this.deviceId is not set
+   * @returns Standardized telemetry payload
+   */
+  private buildDeviceTelemetryPayload(snapshot: any, fallbackDeviceId?: string): any {
+    return {
+      eventType: EVENT_TYPE.NEW_DEVICE_REGISTRATION,
+      deviceId: this.deviceId || fallbackDeviceId || process.env.DEVICE_ID,
+      serial: snapshot.system?.serial,
+      name: snapshot.hostname,
+      model: snapshot.system?.model,
+      uptime: snapshot.uptime * 1000, // Convert to milliseconds
+      modelNumber: snapshot.system?.model,
+      serialNo: snapshot.system?.serial,
+      deviceType: DEVICE_TYPE,
+    };
+  }
+
+  /**
    * Send telemetry data to IoT Hub (Device-to-Cloud)
    * Uses the internal TelemetryService from the edge-assembly package
    * 
@@ -589,18 +600,7 @@ export class EdgeAssemblyService implements OnModuleInit {
     this.telemetryInterval = setInterval(async () => {
       try {
         const snapshot = await getHostDeviceSnapshot();
-
-        const telemetryData = {
-          deviceId: this.deviceId || process.env.DEVICE_ID,
-          timestamp: new Date().toISOString(),
-          uptime: snapshot.uptime,
-          hostname: snapshot.hostname,
-          cpuLoad: Math.random() * 100, // Replace with actual CPU load if available
-          memoryUsage: Math.random() * 100, // Replace with actual memory usage
-          temperature: 20 + Math.random() * 15, // Replace with actual temperature
-          status: 'running',
-        };
-
+        const telemetryData = this.buildDeviceTelemetryPayload(snapshot);
         await this.sendTelemetry('deviceTelemetry', telemetryData);
       } catch (error) {
         this.logger.error('Error sending periodic telemetry:', error);
