@@ -6,15 +6,66 @@ import {
 } from '@nestjs/common';
 import { WINSTON_MODULE_NEST_PROVIDER } from 'nest-winston';
 import { EdgeAssembly } from '@qsc/edge-assembly';
+import type { IConfig } from '@qsc/edge-assembly/dist/interfaces';
+import type { ConfigService as EdgeConfigService } from '@qsc/edge-assembly/dist/services/config';
 import { formatDeviceId } from '../utils/device-id';
 import { getHostDeviceSnapshot } from '../utils/device-info';
+import {
+  parseBoolean,
+  parseNumber,
+  parseSecurityType,
+  parseTransportType,
+  resolveLoggerLevel,
+} from '../utils/config-parsers';
 import { DEVICE_TYPE, EVENT_TYPE } from '../constants/app.constants';
 import * as path from 'path';
 import * as fs from 'fs';
 
+type ConfigServiceContract = Pick<
+  EdgeConfigService,
+  'getConfig' | 'getAzureConfig' | 'get' | 'has' | 'validateRequired'
+>;
+
+class StaticConfigService implements ConfigServiceContract {
+  constructor(private readonly config: IConfig) {}
+
+  getConfig(): IConfig {
+    return this.config;
+  }
+
+  getAzureConfig(): IConfig['azure'] {
+    return this.config.azure;
+  }
+
+  get<T = any>(keyPath: string): T | undefined {
+    return keyPath
+      .split('.')
+      .reduce<any>((obj, key) => (obj === undefined || obj === null ? undefined : obj[key]), this.config);
+  }
+
+  has(keyPath: string): boolean {
+    const value = this.get(keyPath);
+    return value !== undefined && value !== null && value !== '';
+  }
+
+  validateRequired(requiredKeys: string[]): void {
+    const missing = requiredKeys.filter((key) => !this.has(key));
+    if (missing.length > 0) {
+      throw new Error(`Missing required configuration values: ${missing.join(', ')}`);
+    }
+  }
+}
+
+interface DeviceConfigurationContext {
+  deviceId: string;
+  snapshot: any;
+  certFile: string;
+  keyFile: string;
+}
+
 @Injectable()
 export class EdgeAssemblyService implements OnModuleInit {
-  private edgeDevice: EdgeAssembly;
+  private edgeDevice: EdgeAssembly | null = null;
   private isInitialized = false;
   private telemetryInterval: NodeJS.Timeout | null = null;
   private deviceId: string | null = null;
@@ -22,9 +73,7 @@ export class EdgeAssemblyService implements OnModuleInit {
   constructor(
     @Inject(WINSTON_MODULE_NEST_PROVIDER)
     private readonly logger: LoggerService
-  ) {
-    this.edgeDevice = new EdgeAssembly();
-  }
+  ) {}
 
   async onModuleInit() {
     // Intentionally left blank to delay initialization until after app start
@@ -34,7 +83,7 @@ export class EdgeAssemblyService implements OnModuleInit {
    * Prepare device-specific configuration dynamically
    * This ensures all device-specific env variables are set before EdgeAssembly initialization
    */
-  private async prepareDeviceConfiguration() {
+  private async prepareDeviceConfiguration(): Promise<DeviceConfigurationContext> {
     // Get device information from system
     const snapshot = await getHostDeviceSnapshot();
     const model = snapshot.system.model || 'MODEL';
@@ -44,46 +93,102 @@ export class EdgeAssemblyService implements OnModuleInit {
     this.deviceId = formatDeviceId(DEVICE_TYPE, model, serial);
     this.logger.log(`Generated device ID: ${this.deviceId}`);
 
-    // Resolve certificate paths (relative to project root)
     const projectRoot = process.cwd();
-    const certificatesDir = path.join(projectRoot, 'certificates');
-    const certFile = path.join(certificatesDir, 'device.pem');
-    const keyFile = path.join(certificatesDir, 'device.key');
 
-    // Convert to relative paths (as expected by edge-assembly)
-    const relativeCertFile = path.relative(projectRoot, certFile).replace(/\\/g, '/');
-    const relativeKeyFile = path.relative(projectRoot, keyFile).replace(/\\/g, '/');
+    const certFileFromEnv = process.env.X509_CERT_FILE;
+    const keyFileFromEnv = process.env.X509_KEY_FILE;
 
-    // Verify certificate files exist
-    if (!fs.existsSync(certFile)) {
+    if (!certFileFromEnv) {
       throw new Error(
-        `Device certificate not found at: ${certFile}\n` +
-        `Please generate certificate with: node scripts/generateDynamicCert.js`
-      );
-    }
-    if (!fs.existsSync(keyFile)) {
-      throw new Error(
-        `Device private key not found at: ${keyFile}\n` +
-        `Please generate certificate with: node scripts/generateDynamicCert.js`
+        'Environment variable X509_CERT_FILE is not set. Please provide the certificate path in the environment.'
       );
     }
 
-    // Set all device-specific environment variables BEFORE EdgeAssembly initialization
-    process.env.DEVICE_ID = this.deviceId;
-    process.env.X509_CERT_FILE = relativeCertFile;
-    process.env.X509_KEY_FILE = relativeKeyFile;
-
-    // Set X509_PASSPHRASE if provided in env (optional)
-    if (process.env.X509_PASSPHRASE) {
-      // Already set from .env, no need to change
+    if (!keyFileFromEnv) {
+      throw new Error(
+        'Environment variable X509_KEY_FILE is not set. Please provide the private key path in the environment.'
+      );
     }
+
+    const resolveFilePath = (filePath: string): string =>
+      path.isAbsolute(filePath) ? filePath : path.join(projectRoot, filePath);
+
+    const certFileAbsolute = resolveFilePath(certFileFromEnv);
+    const keyFileAbsolute = resolveFilePath(keyFileFromEnv);
+
+    if (!fs.existsSync(certFileAbsolute)) {
+      throw new Error(
+        `Device certificate not found at: ${certFileAbsolute}\n` +
+        `Please generate certificate with: node scripts/generateDynamicCert.js`
+      );
+    }
+    if (!fs.existsSync(keyFileAbsolute)) {
+      throw new Error(
+        `Device private key not found at: ${keyFileAbsolute}\n` +
+        `Please generate certificate with: node scripts/generateDynamicCert.js`
+      );
+    }
+
+    const certFile = certFileFromEnv.replace(/\\/g, '/');
+    const keyFile = keyFileFromEnv.replace(/\\/g, '/');
 
     this.logger.log(`-----Device configuration prepared:`);
     this.logger.log(`  DEVICE_ID: ${this.deviceId}`);
-    this.logger.log(`  X509_CERT_FILE: ${relativeCertFile}`);
-    this.logger.log(`------  X509_KEY_FILE: ${relativeKeyFile}`);
+    this.logger.log(`  X509_CERT_FILE: ${certFile}`);
+    this.logger.log(`  X509_KEY_FILE: ${keyFile}`);
 
-    return { deviceId: this.deviceId, snapshot };
+    return {
+      deviceId: this.deviceId,
+      snapshot,
+      certFile,
+      keyFile,
+    };
+  }
+
+  private buildEdgeAssemblyConfig(context: DeviceConfigurationContext): IConfig {
+    const passphrase =
+      process.env.X509_KEY_PASSPHRASE || process.env.X509_PASSPHRASE || undefined;
+
+    return {
+      azure: {
+        iot: {
+          deviceId: context.deviceId,
+          useCertificateAuth: parseBoolean(process.env.USE_CERTIFICATE_AUTH, true),
+          x509: {
+            certFile: context.certFile,
+            keyFile: context.keyFile,
+            passphrase,
+          },
+          mqtt: {
+            useWebsockets: parseBoolean(process.env.USE_WEBSOCKETS, false),
+            websocketPath: process.env.MQTT_WS_PATH || '/mqtt',
+          },
+          telemetry: {
+            intervalMs: parseNumber(process.env.TELEMETRY_INTERVAL_MS, 5000),
+          },
+        },
+        dps: {
+          registrationId: process.env.DPS_REGISTRATION_ID || context.deviceId,
+          transportType: parseTransportType(process.env.DPS_TRANSPORT_TYPE),
+          registrationConfig: {
+            provisioningHost:
+              process.env.DPS_PROVISIONING_HOST || 'global.azure-devices-provisioning.net',
+            idScope: process.env.DPS_ID_SCOPE || '',
+          },
+          securityType: parseSecurityType(process.env.DPS_SECURITY_TYPE),
+        },
+      },
+      logger: {
+        level: resolveLoggerLevel(process.env.EDGE_ASSEMBLY_LOG_LEVEL || process.env.LOG_LEVEL),
+      },
+    };
+  }
+
+  private ensureEdgeDeviceInitialized(): EdgeAssembly {
+    if (!this.edgeDevice) {
+      throw new Error('EdgeAssembly instance has not been initialized');
+    }
+    return this.edgeDevice;
   }
 
   /**
@@ -98,33 +203,36 @@ export class EdgeAssemblyService implements OnModuleInit {
 
     try {
       // Prepare device-specific configuration (sets env vars dynamically)
-      const { deviceId, snapshot } = await this.prepareDeviceConfiguration();
+      const { deviceId, snapshot, certFile, keyFile } = await this.prepareDeviceConfiguration();
 
-      // Now initialize EdgeAssembly (it will read the dynamically set env vars)
-      this.logger.log('Initializing EdgeAssembly...');
-      await this.edgeDevice.init();    // ---- Reads ALL env vars at this point
+      const config = this.buildEdgeAssemblyConfig({ deviceId, snapshot, certFile, keyFile });
+      const configService = new StaticConfigService(config);
+      this.edgeDevice = new EdgeAssembly(configService as unknown as EdgeConfigService);
+
+      this.logger.log('Initializing EdgeAssembly with explicit configuration...');
+      await this.ensureEdgeDeviceInitialized().init();
       this.logger.log('EdgeAssembly configuration loaded');
 
       // Pair device with IoT Hub via DPS
       this.logger.log('Pairing device with Azure IoT Hub via DPS...');
-      await this.edgeDevice.pair();
+      await this.ensureEdgeDeviceInitialized().pair();
       this.logger.log('Device paired successfully');
 
       // Check pair status
-      const pairStatus = await this.edgeDevice.getPairStatus();
+      const pairStatus = await this.ensureEdgeDeviceInitialized().getPairStatus();
       this.logger.log(`Pair Status: ${pairStatus}`);
 
       // Connect to IoT Hub
       this.logger.log('Connecting to IoT Hub...');
-      await this.edgeDevice.connect();
+      await this.ensureEdgeDeviceInitialized().connect();
       this.logger.log('Connected to IoT Hub');
 
       // Verify connection status
-      const ctrlStatus = await this.edgeDevice.getCtrlStatus();
+      const ctrlStatus = await this.ensureEdgeDeviceInitialized().getCtrlStatus();
       this.logger.log(`Control Status: ${ctrlStatus}`);
 
       // Ping to verify connectivity
-      const isConnected = await this.edgeDevice.ping();
+      const isConnected = await this.ensureEdgeDeviceInitialized().ping();
       this.logger.log(
         `Connection status: ${isConnected ? 'CONNECTED' : 'DISCONNECTED'}`
       );
@@ -178,7 +286,7 @@ export class EdgeAssemblyService implements OnModuleInit {
         deviceType: DEVICE_TYPE,
       };
 
-      await this.edgeDevice.syncState(desiredProperties);
+      await this.ensureEdgeDeviceInitialized().syncState(desiredProperties);
       this.logger.log('Device twin updated successfully');
     } catch (error) {
       this.logger.error('Failed to sync device state:', error);
@@ -201,8 +309,10 @@ export class EdgeAssemblyService implements OnModuleInit {
    * Register direct method handlers (request-response pattern)
    */
   private registerDirectMethods() {
+    const edgeDevice = this.ensureEdgeDeviceInitialized();
+
     // Reboot command handler
-    this.edgeDevice.onRequest('reboot', async (requestId, data) => {
+    edgeDevice.onRequest('reboot', async (requestId, data) => {
       this.logger.log(`Reboot command received [${requestId}]:`, data);
 
       try {
@@ -228,7 +338,7 @@ export class EdgeAssemblyService implements OnModuleInit {
     });
 
     // Upgrade command handler
-    this.edgeDevice.onRequest('upgrade', async (requestId, data) => {
+    edgeDevice.onRequest('upgrade', async (requestId, data) => {
       this.logger.log(`Upgrade command received [${requestId}]:`, data);
 
       try {
@@ -262,7 +372,7 @@ export class EdgeAssemblyService implements OnModuleInit {
     });
 
     // Custom health check command
-    this.edgeDevice.onRequest('healthCheck', async (requestId, data) => {
+    edgeDevice.onRequest('healthCheck', async (requestId, data) => {
       this.logger.log(`Health check requested [${requestId}]`);
 
       try {
@@ -286,7 +396,7 @@ export class EdgeAssemblyService implements OnModuleInit {
     });
 
     // Get device information
-    this.edgeDevice.onRequest('getDeviceInfo', async (requestId, data) => {
+    edgeDevice.onRequest('getDeviceInfo', async (requestId, data) => {
       this.logger.log(`Get device info requested [${requestId}]`);
 
       try {
@@ -320,7 +430,7 @@ export class EdgeAssemblyService implements OnModuleInit {
     try {
       // Access the AzureAdapter through the edge-assembly's internal plugin
       // The edge-assembly package uses a plugin pattern internally
-      const edgeDeviceAny = this.edgeDevice as any;
+      const edgeDeviceAny = this.ensureEdgeDeviceInitialized() as any;
       
       // Try to access the plugin property (it's internal but we can access it)
       // The plugin structure: edgeDevice.plugin.connectivityPlugin
@@ -543,7 +653,7 @@ export class EdgeAssemblyService implements OnModuleInit {
   async sendTelemetry(topic: string, data: any): Promise<void> {
     try {
       // Access the telemetryService through the plugin structure
-      const edgeDeviceAny = this.edgeDevice as any;
+      const edgeDeviceAny = this.ensureEdgeDeviceInitialized() as any;
       const telemetryService = edgeDeviceAny.plugin?.telemetryService;
       const adapter = edgeDeviceAny.plugin?.connectivityPlugin;
 
@@ -629,10 +739,10 @@ export class EdgeAssemblyService implements OnModuleInit {
         this.stopPeriodicTelemetry();
 
         this.logger.log('Updating device status to offline...');
-        await this.edgeDevice.syncState({ status: 'offline' });
+        await this.ensureEdgeDeviceInitialized().syncState({ status: 'offline' });
 
         this.logger.log('Disconnecting from IoT Hub...');
-        await this.edgeDevice.disconnect();
+        await this.ensureEdgeDeviceInitialized().disconnect();
         this.logger.log('Disconnected from IoT Hub');
 
         this.isInitialized = false;
@@ -646,7 +756,7 @@ export class EdgeAssemblyService implements OnModuleInit {
    * Get the underlying EdgeAssembly instance
    */
   getEdgeDevice(): EdgeAssembly {
-    return this.edgeDevice;
+    return this.ensureEdgeDeviceInitialized();
   }
 
   /**
@@ -671,7 +781,7 @@ export class EdgeAssemblyService implements OnModuleInit {
       throw new Error('EdgeAssembly not initialized');
     }
 
-    await this.edgeDevice.syncState(properties);
+    await this.ensureEdgeDeviceInitialized().syncState(properties);
     this.logger.log('Device twin updated with custom properties');
   }
 
@@ -683,7 +793,7 @@ export class EdgeAssemblyService implements OnModuleInit {
       return false;
     }
 
-    return await this.edgeDevice.ping();
+    return await this.ensureEdgeDeviceInitialized().ping();
   }
 }
 
