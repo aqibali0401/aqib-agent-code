@@ -10,6 +10,7 @@ import type { IConfig } from '@qsc/edge-assembly/dist/interfaces';
 import type { ConfigService as EdgeConfigService } from '@qsc/edge-assembly/dist/services/config';
 import { formatDeviceId } from '../utils/device-id';
 import { getHostDeviceSnapshot } from '../utils/device-info';
+import { getUDIClient } from '../utils/udi/udi-client';
 import {
   parseBoolean,
   parseNumber,
@@ -84,13 +85,52 @@ export class EdgeAssemblyService implements OnModuleInit {
    * This ensures all device-specific env variables are set before EdgeAssembly initialization
    */
   private async prepareDeviceConfiguration(): Promise<DeviceConfigurationContext> {
-    // Get device information from system
-    const snapshot = await getHostDeviceSnapshot();
-    const model = snapshot.system.model || 'MODEL';
-    const serial = snapshot.system.serial || snapshot.system.uuid || 'SERIAL';
+    // Get device information from UDI framework
+    let model: string;
+    let serial: string;
+    let snapshot: any;
 
-    // Generate device ID dynamically (must match certificate CN)
-    this.deviceId = formatDeviceId(DEVICE_TYPE, model, serial);
+    try {
+      this.logger.log('Attempting to get device information from UDI framework...');
+      
+      // Use unified UDI client with automatic fallback (CLI → Local → Cache)
+      const udiClient = getUDIClient();
+      const udiInfo = await udiClient.getSystemInfo();
+      const methodUsed = udiClient.getLastMethod();
+      console.log(" ~ EdgeAssemblyService ~ prepareDeviceConfiguration ~ ----------------------------------------------------------------------------------methodUsed:", methodUsed)
+      
+      model = udiInfo.model || 'MODEL';
+      serial = udiInfo.serial || 'SERIAL';
+      
+      this.logger.log(
+        `UDI Framework Info (via ${methodUsed || 'unknown'}) - Model: ${model}, Serial: ${serial}, Name: ${udiInfo.name}`
+      );
+      
+      // Create a snapshot-like object for compatibility with existing code
+      snapshot = {
+        hostname: udiInfo.name || 'UNKNOWN',
+        system: {
+          model: udiInfo.model,
+          serial: udiInfo.serial,
+          manufacturer: 'QSC',
+        },
+        uptime: 0, // UDI doesn't provide uptime, will be updated later if needed
+      };
+    } catch (error) {
+      this.logger.warn(
+        `Failed to get device info from UDI framework: ${error instanceof Error ? error.message : String(error)}`
+      );
+      this.logger.warn('Falling back to system information...');
+      
+      // Fallback to system information if UDI framework is not available
+      snapshot = await getHostDeviceSnapshot();
+      model = snapshot.system.model || 'MODEL';
+      serial = snapshot.system.serial || snapshot.system.uuid || 'SERIAL';
+    }
+
+    // Generate device ID dynamically using AIO prefix (must match certificate CN)
+    // Using 'AIO' as the device type prefix as specified
+    this.deviceId = formatDeviceId('AIO', model, serial);
     this.logger.log(`Generated device ID: ${this.deviceId}`);
 
     const projectRoot = process.cwd();
@@ -164,7 +204,7 @@ export class EdgeAssemblyService implements OnModuleInit {
             websocketPath: process.env.MQTT_WS_PATH || '/mqtt',
           },
           telemetry: {
-            intervalMs: parseNumber(process.env.TELEMETRY_INTERVAL_MS, 5000),
+            intervalMs: parseNumber(process.env.TELEMETRY_INTERVAL_MS, 10000),
           },
         },
         dps: {
