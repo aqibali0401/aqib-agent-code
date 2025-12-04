@@ -145,9 +145,18 @@ DEVICE_ID=AIO_20VD_PG02W5PL  # Use the ID from Step 2
 # X.509 Certificate Authentication
 # ============================================
 USE_CERTIFICATE_AUTH=true
+
+# TPM-Based Authentication (Recommended - Default)
+# Private key stored securely in TPM hardware, never exposed as file
+USE_TPM_AUTH=true
 X509_CERT_FILE=./certificates/device.pem
-X509_KEY_FILE=./certificates/device.key
-X509_PASSPHRASE=
+# X509_KEY_FILE not needed for TPM auth
+
+# OR File-Based Authentication (Development Only)
+# USE_TPM_AUTH=false
+# X509_CERT_FILE=./certificates/device.pem
+# X509_KEY_FILE=./certificates/device.key
+# X509_PASSPHRASE=
 
 # ============================================
 # Azure DPS Configuration

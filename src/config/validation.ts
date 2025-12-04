@@ -24,15 +24,47 @@ class EnvironmentVariables {
 
   @IsOptional()
   @IsString()
+  USE_TPM_AUTH?: string; // Enable TPM-based authentication (default: true)
+
+  @IsOptional()
+  @IsString()
   X509_CERT_FILE?: string; // Set dynamically at runtime - optional in .env
 
   @IsOptional()
   @IsString()
-  X509_KEY_FILE?: string; // Set dynamically at runtime - optional in .env
+  X509_KEY_FILE?: string; // Optional - only required when USE_TPM_AUTH=false
 
   @IsOptional()
   @IsString()
   X509_PASSPHRASE?: string; // Optional - only needed if certificates are encrypted
+
+  @IsOptional()
+  @IsString()
+  X509_CA_CHAIN_FILE?: string;
+
+  @IsOptional()
+  @IsString()
+  CSR_OUTPUT_PATH?: string;
+
+  @IsOptional()
+  @IsString()
+  AUTO_ENROLL_ENABLED?: string;
+
+  @IsOptional()
+  @IsString()
+  ENROLLMENT_URL?: string;
+
+  @IsOptional()
+  @IsString()
+  ENROLLMENT_TOKEN?: string;
+
+  @IsOptional()
+  @IsString()
+  TPM_KEY_SCRIPT_PATH?: string;
+
+  @IsOptional()
+  @IsString()
+  CSR_SCRIPT_PATH?: string;
 
   @IsOptional()
   @IsString()

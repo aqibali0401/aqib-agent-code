@@ -1,0 +1,39 @@
+{
+  "azure": {
+    "device": {
+      "deviceId": "AIO_20VD_PG02W5PL"
+    },
+    "iot": {
+      "deviceId": "AIO_20VD_PG02W5PL",
+      "useCertificateAuth": true,
+      "useTPMAuth": true,
+      "x509": {
+        "certFile": "./certificates/device.pem"
+      },
+      "mqtt": {
+        "useWebsockets": true,
+        "websocketPath": "/mqtt"
+      },
+      "telemetry": {
+        "intervalMs": 14400000
+      }
+    },
+    "dps": {
+      "registrationId": "AIO_20VD_PG02W5PL",
+      "transportType": "mqtt",
+      "registrationConfig": {
+        "provisioningHost": "iot-dps-reflect-hub-wus2-dev.azure-devices-provisioning.net",
+        "idScope": "0ne00FD6AF7"
+      },
+      "securityType": "x509"
+    },
+    "virtualTpm": {
+      "isVirtual": true,
+      "host": "localhost",
+      "port": 2321
+    }
+  },
+  "logger": {
+    "level": "info"
+  }
+}

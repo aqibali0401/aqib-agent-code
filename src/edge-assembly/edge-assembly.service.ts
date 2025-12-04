@@ -21,6 +21,8 @@ import {
 import { DEVICE_TYPE, EVENT_TYPE } from '../constants/app.constants';
 import * as path from 'path';
 import * as fs from 'fs';
+import { EnrollmentService } from '../provisioning/enrollment.service';
+import { autoProvisionIfNeeded, resolveFilePath } from '../provisioning/provisioning.utils';
 
 type ConfigServiceContract = Pick<
   EdgeConfigService,
@@ -61,7 +63,8 @@ interface DeviceConfigurationContext {
   deviceId: string;
   snapshot: any;
   certFile: string;
-  keyFile: string;
+  keyFile?: string; // Optional: only needed for file-based auth, not TPM
+  useTpmAuth?: boolean; // Flag to indicate TPM-based authentication
 }
 
 @Injectable()
@@ -73,7 +76,8 @@ export class EdgeAssemblyService implements OnModuleInit {
 
   constructor(
     @Inject(WINSTON_MODULE_NEST_PROVIDER)
-    private readonly logger: LoggerService
+    private readonly logger: LoggerService,
+    private readonly enrollmentService: EnrollmentService
   ) {}
 
   async onModuleInit() {
@@ -135,8 +139,50 @@ export class EdgeAssemblyService implements OnModuleInit {
 
     const projectRoot = process.cwd();
 
+    // Default all certificate material into the shared "certificates" folder
+    if (!process.env.X509_CERT_FILE) {
+      const defaultCertPath = path.join(projectRoot, 'certificates', 'device.pem');
+      process.env.X509_CERT_FILE = defaultCertPath;
+      this.logger.log(`X509_CERT_FILE not provided. Using default path: ${defaultCertPath}`);
+    }
+
+    // TPM-based authentication: Check if TPM mode is enabled
+    let useTpmAuth = parseBoolean(process.env.USE_TPM_AUTH, true); // Default to TPM for security
+    
+    if (!useTpmAuth && !process.env.X509_KEY_FILE) {
+      // File-based auth requires explicit key file
+      const defaultKeyPath = path.join(projectRoot, 'certificates', 'device.key');
+      process.env.X509_KEY_FILE = defaultKeyPath;
+      this.logger.log(`X509_KEY_FILE not provided. Using default path: ${defaultKeyPath}`);
+    } else if (useTpmAuth) {
+      this.logger.log('TPM-based authentication enabled - private key will be accessed from TPM hardware');
+      // No key file needed for TPM auth
+    }
+
+    if (!process.env.X509_CA_CHAIN_FILE) {
+      const defaultChainPath = path.join(projectRoot, 'certificates', 'device-fullchain.pem');
+      process.env.X509_CA_CHAIN_FILE = defaultChainPath;
+      this.logger.log(`X509_CA_CHAIN_FILE not provided. Using default path: ${defaultChainPath}`);
+    }
+
+    if (!process.env.CSR_OUTPUT_PATH) {
+      process.env.CSR_OUTPUT_PATH = path.join(projectRoot, `csr-${this.deviceId}.req`);
+    }
+    console.log("🚀 ~ Starting auto provisioning--------------------------------");
+    await autoProvisionIfNeeded({
+      deviceId: this.deviceId,
+      model,
+      serial,
+      projectRoot,
+      logger: this.logger,
+      enrollmentService: this.enrollmentService,
+    });
+
+    console.log("🚀 ~ End auto provisioning--------------------------------");
+
     const certFileFromEnv = process.env.X509_CERT_FILE;
-    const keyFileFromEnv = process.env.X509_KEY_FILE;
+    // const keyFileFromEnv = process.env.X509_KEY_FILE;
+    useTpmAuth = parseBoolean(process.env.USE_TPM_AUTH, true);
 
     if (!certFileFromEnv) {
       throw new Error(
@@ -144,17 +190,14 @@ export class EdgeAssemblyService implements OnModuleInit {
       );
     }
 
-    if (!keyFileFromEnv) {
-      throw new Error(
-        'Environment variable X509_KEY_FILE is not set. Please provide the private key path in the environment.'
-      );
-    }
+    // if (!keyFileFromEnv) {
+    //   throw new Error(
+    //     'Environment variable X509_KEY_FILE is not set. Please provide the private key path in the environment.'
+    //   );
+    // }
 
-    const resolveFilePath = (filePath: string): string =>
-      path.isAbsolute(filePath) ? filePath : path.join(projectRoot, filePath);
-
-    const certFileAbsolute = resolveFilePath(certFileFromEnv);
-    const keyFileAbsolute = resolveFilePath(keyFileFromEnv);
+    const certFileAbsolute = resolveFilePath(certFileFromEnv, projectRoot);
+    // const keyFileAbsolute = resolveFilePath(keyFileFromEnv, projectRoot);
 
     if (!fs.existsSync(certFileAbsolute)) {
       throw new Error(
@@ -162,26 +205,26 @@ export class EdgeAssemblyService implements OnModuleInit {
         `Please generate certificate with: node scripts/generateDynamicCert.js`
       );
     }
-    if (!fs.existsSync(keyFileAbsolute)) {
-      throw new Error(
-        `Device private key not found at: ${keyFileAbsolute}\n` +
-        `Please generate certificate with: node scripts/generateDynamicCert.js`
-      );
-    }
+    // if (!fs.existsSync(keyFileAbsolute)) {
+    //   throw new Error(
+    //     `Device private key not found at: ${keyFileAbsolute}\n` +
+    //     `Please generate certificate with: node scripts/generateDynamicCert.js`
+    //   );
+    // }
 
-    const certFile = certFileFromEnv.replace(/\\/g, '/');
-    const keyFile = keyFileFromEnv.replace(/\\/g, '/');
+      // keyFile = keyFileFromEnv.replace(/\\/g, '/');
+       const certFile = certFileFromEnv.replace(/\\/g, '/');
 
-    this.logger.log(`-----Device configuration prepared:`);
-    this.logger.log(`  DEVICE_ID: ${this.deviceId}`);
-    this.logger.log(`  X509_CERT_FILE: ${certFile}`);
-    this.logger.log(`  X509_KEY_FILE: ${keyFile}`);
+      this.logger.log(`-----Device configuration prepared (File-based mode):`);
+      this.logger.log(`  DEVICE_ID: ${this.deviceId}`);
+      this.logger.log(`  X509_CERT_FILE: ${certFile}`);
+      // this.logger.log(`  X509_KEY_FILE: ${keyFile}`);
 
     return {
       deviceId: this.deviceId,
       snapshot,
       certFile,
-      keyFile,
+      // keyFile,
     };
   }
 
@@ -189,11 +232,18 @@ export class EdgeAssemblyService implements OnModuleInit {
     const passphrase =
       process.env.X509_KEY_PASSPHRASE || process.env.X509_PASSPHRASE || undefined;
 
+    const useTpmAuth = parseBoolean(process.env.USE_TPM_AUTH, true);
+
     return {
       azure: {
+        device: {
+          deviceId: context.deviceId,
+          symmetricKey: undefined,
+        },
         iot: {
           deviceId: context.deviceId,
           useCertificateAuth: parseBoolean(process.env.USE_CERTIFICATE_AUTH, true),
+          useTPMAuth: useTpmAuth,
           x509: {
             certFile: context.certFile,
             keyFile: context.keyFile,
@@ -217,9 +267,14 @@ export class EdgeAssemblyService implements OnModuleInit {
           },
           securityType: parseSecurityType(process.env.DPS_SECURITY_TYPE),
         },
+        virtualTpm: {
+          isVirtual: useTpmAuth,
+          host: process.env.TPM_HOST || 'localhost',
+          port: parseNumber(process.env.TPM_PORT, 2321),
+        },
       },
       logger: {
-        level: resolveLoggerLevel(process.env.EDGE_ASSEMBLY_LOG_LEVEL || process.env.LOG_LEVEL),
+        level: resolveLoggerLevel(process.env.LOG_LEVEL),
       },
     };
   }
@@ -246,11 +301,23 @@ export class EdgeAssemblyService implements OnModuleInit {
       const { deviceId, snapshot, certFile, keyFile } = await this.prepareDeviceConfiguration();
 
       const config = this.buildEdgeAssemblyConfig({ deviceId, snapshot, certFile, keyFile });
-      const configService = new StaticConfigService(config);
-      this.edgeDevice = new EdgeAssembly(configService as unknown as EdgeConfigService);
+      
+      // Write config to a temporary file - EdgeAssembly.init expects a config file path
+      const projectRoot = process.cwd();
+      const configPath = path.join(projectRoot, '.edge-assembly-config.json');
+      fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+      this.logger.log(`EdgeAssembly config written to: ${configPath}`);
+      
+      this.edgeDevice = new EdgeAssembly();
 
-      this.logger.log('Initializing EdgeAssembly with explicit configuration...');
-      await this.ensureEdgeDeviceInitialized().init();
+      this.logger.log('Initializing EdgeAssembly with configuration file...');
+      const credentials = {
+        serial: snapshot.system.serial || snapshot.system.uuid || 'SERIAL',
+        license: process.env.LICENSE_KEY || '',
+      };
+      
+      this.logger.log(`Calling EdgeAssembly.init with config path: ${configPath}`);
+      await this.ensureEdgeDeviceInitialized().init(configPath, credentials);
       this.logger.log('EdgeAssembly configuration loaded');
 
       // Pair device with IoT Hub via DPS
@@ -835,5 +902,7 @@ export class EdgeAssemblyService implements OnModuleInit {
 
     return await this.ensureEdgeDeviceInitialized().ping();
   }
+
 }
+
 
