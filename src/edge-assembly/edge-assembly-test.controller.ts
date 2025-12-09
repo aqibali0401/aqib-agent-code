@@ -17,13 +17,14 @@ export class EdgeAssemblyTestController {
   @Get('status')
   async getStatus() {
     const isReady = this.edgeAssemblyService.isReady();
-    const isConnected = isReady ? await this.edgeAssemblyService.checkConnection() : false;
+    const isConnected = isReady ? this.edgeAssemblyService.isConnected() : false;
 
     return {
       status: 'ok',
       iotReady: isReady,
       iotConnected: isConnected,
-      deviceId: process.env.DEVICE_ID,
+      deviceId: this.edgeAssemblyService.getDeviceId(),
+      assignedHub: this.edgeAssemblyService.getAssignedHub(),
       timestamp: new Date().toISOString(),
     };
   }
@@ -89,7 +90,8 @@ export class EdgeAssemblyTestController {
     }
 
     try {
-      await this.edgeAssemblyService.sendMessage(message, topic);
+      // Use sendTelemetry with message wrapped in data object
+      await this.edgeAssemblyService.sendTelemetry(topic, { message });
       this.logger.log(`Message sent via API: ${message}`);
 
       return {
@@ -128,7 +130,22 @@ export class EdgeAssemblyTestController {
     }
 
     try {
-      await this.edgeAssemblyService.updateTwin(properties);
+      // Access twin directly from IoT Hub client
+      const twin = this.edgeAssemblyService.getDeviceTwin();
+      if (!twin) {
+        return {
+          success: false,
+          error: 'Device twin not available',
+        };
+      }
+
+      await new Promise<void>((resolve, reject) => {
+        twin.properties.reported.update(properties, (err: Error | null) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
+
       this.logger.log(`Twin updated via API:`, properties);
 
       return {
@@ -148,53 +165,28 @@ export class EdgeAssemblyTestController {
 
   /**
    * POST /iot-test/telemetry/start
-   * Start sending periodic telemetry
-   * 
-   * Body: {
-   *   "intervalMs": 30000 (optional)
-   * }
+   * Start sending periodic telemetry (not yet implemented)
    */
   @Post('telemetry/start')
   async startTelemetry(@Body() body?: { intervalMs?: number }) {
-    try {
-      this.edgeAssemblyService.startPeriodicTelemetry(body?.intervalMs);
-
-      return {
-        success: true,
-        message: 'Periodic telemetry started',
-        intervalMs: body?.intervalMs || parseInt(process.env.TELEMETRY_INTERVAL_MS || '30000', 10),
-        timestamp: new Date().toISOString(),
-      };
-    } catch (error) {
-      this.logger.error('Failed to start telemetry via API:', error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      };
-    }
+    return {
+      success: false,
+      message: 'Periodic telemetry not yet implemented in TPM-backed mode',
+      timestamp: new Date().toISOString(),
+    };
   }
 
   /**
    * POST /iot-test/telemetry/stop
-   * Stop sending periodic telemetry
+   * Stop sending periodic telemetry (not yet implemented)
    */
   @Post('telemetry/stop')
   async stopTelemetry() {
-    try {
-      this.edgeAssemblyService.stopPeriodicTelemetry();
-
-      return {
-        success: true,
-        message: 'Periodic telemetry stopped',
-        timestamp: new Date().toISOString(),
-      };
-    } catch (error) {
-      this.logger.error('Failed to stop telemetry via API:', error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      };
-    }
+    return {
+      success: false,
+      message: 'Periodic telemetry not yet implemented in TPM-backed mode',
+      timestamp: new Date().toISOString(),
+    };
   }
 
   /**

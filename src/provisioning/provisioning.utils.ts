@@ -187,15 +187,34 @@ export async function autoProvisionIfNeeded(options: AutoProvisionOptions): Prom
 
   if (fs.existsSync(certPath)) {
     logger.log(`Device certificate already exists at ${certPath}.`);
-    return;
+  } else {
+    // Enroll and get certificate from enrollment service
+    await enrollmentService.enrollDeviceCertificate({
+      deviceId,
+      model,
+      serial,
+      csrPath,
+      certPath,
+      chainPath,
+    });
   }
 
-  await enrollmentService.enrollDeviceCertificate({
-    deviceId,
-    model,
-    serial,
-    csrPath,
-    certPath,
-    chainPath,
-  });
+  // Import certificate to Windows cert store (links to TPM key)
+  // This is required for Azure IoT SDK to use TPM for signing
+  const importScriptPath = resolveFilePath(
+    process.env.CERT_IMPORT_SCRIPT_PATH || path.join(scriptsDir, 'import-cert-to-store.ps1'),
+    projectRoot
+  );
+
+  if (fs.existsSync(importScriptPath)) {
+    logger.log('Importing certificate to Windows cert store...');
+    const importArgs = ['-DeviceId', deviceId, '-CertPath', certPath];
+    if (chainPath && fs.existsSync(chainPath)) {
+      importArgs.push('-ChainPath', chainPath);
+    }
+    await runPowerShellScript(importScriptPath, importArgs, logger, true);
+    logger.log('Certificate imported to Windows cert store successfully.');
+  } else {
+    logger.warn(`Cert import script not found at ${importScriptPath}. Skipping cert store import.`);
+  }
 }
